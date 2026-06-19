@@ -618,8 +618,6 @@
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
-    parts.push('h264-rangetype=SDR');
-    //parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
