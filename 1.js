@@ -536,7 +536,6 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // streamUrl без параметров субтитров и аудио (все дорожки доступны в HLS)
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -563,6 +562,11 @@
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
 
+    // Добавляем параметры для включения всех аудио и субтитровых дорожек
+    parts.push('IncludeAllAudioStreams=true');
+    parts.push('IncludeAllSubtitleStreams=true');
+    parts.push('SubtitleCodec=srt');
+
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
@@ -571,111 +575,9 @@
     if (!transcodingEnabled()) return null;
     var map = {};
     PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-      var qOpts = Object.assign({}, opts, { qualityPreset: entry.preset });
-      map[entry.key] = streamUrl(itemId, qOpts);
+      map[entry.key] = streamUrl(itemId, Object.assign({}, opts, { qualityPreset: entry.preset }));
     });
     return map;
-  }
-
-  // ----- ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ МЕДИА-ИСТОЧНИКОВ (используем /Videos/{Id}/MediaSources) -----
-  function fetchMediaSources(itemId) {
-    return resolveUserId().then(function (userId) {
-      // Запрашиваем медиа-источники напрямую
-      var url = '/Videos/' + encodeURIComponent(itemId) + '/MediaSources';
-      console.log('[Jellyfin] Fetching media sources:', url);
-      return jfHttp(url);
-    }).then(function (data) {
-      console.log('[Jellyfin] Media sources response:', data);
-      // Ожидается массив MediaSourceInfo
-      if (Array.isArray(data) && data.length) {
-        return data[0]; // берём первый источник
-      }
-      return null;
-    }).catch(function (err) {
-      console.error('[Jellyfin] Error fetching media sources:', err);
-      throw err;
-    });
-  }
-
-  function parseTracks(mediaSource) {
-    if (!mediaSource) return { subtitles: [], audioTracks: [] };
-    var streams = mediaSource.MediaStreams || [];
-    var subtitles = streams.filter(function (stream) {
-      return stream.Type === 'Subtitle';
-    }).map(function (stream) {
-      return {
-        id: stream.Index,
-        title: stream.DisplayTitle || stream.Language || 'Unknown',
-        language: stream.Language || '',
-        forced: stream.IsForced || false,
-        default: stream.IsDefault || false,
-      };
-    });
-    var audioTracks = streams.filter(function (stream) {
-      return stream.Type === 'Audio';
-    }).map(function (stream) {
-      return {
-        id: stream.Index,
-        title: stream.DisplayTitle || stream.Language || 'Unknown',
-        language: stream.Language || '',
-        default: stream.IsDefault || false,
-        channels: stream.ChannelLayout || '',
-      };
-    });
-    return { subtitles: subtitles, audioTracks: audioTracks };
-  }
-
-  // ----- ИЗМЕНЁННАЯ playRow -----
-  function playRow(row, allRows) {
-    var rows = allRows && allRows.length ? allRows : [row];
-    resolveUserId()
-      .then(function (userId) {
-        var firstItem = playItemFromRow(row, userId, true);
-        // Запрашиваем медиа-источники
-        return fetchMediaSources(row.id).then(function (mediaSource) {
-          var tracks = parseTracks(mediaSource);
-          var tracksData = null;
-          if (tracks.audioTracks.length || tracks.subtitles.length) {
-            tracksData = {
-              audio: tracks.audioTracks.map(function (t) {
-                return { id: t.id, title: t.title, language: t.language };
-              }),
-              subtitle: tracks.subtitles.map(function (t) {
-                return { id: t.id, title: t.title, language: t.language, forced: t.forced };
-              })
-            };
-            firstItem.tracks = tracksData;
-            console.log('[Jellyfin] Tracks added to item:', tracksData);
-          } else {
-            console.log('[Jellyfin] No tracks found for this item');
-          }
-          return { firstItem: firstItem, userId: userId, tracksData: tracksData };
-        }).catch(function (err) {
-          console.warn('[Jellyfin] Failed to fetch tracks, continuing without tracks', err);
-          return { firstItem: firstItem, userId: userId, tracksData: null };
-        });
-      })
-      .then(function (result) {
-        var firstItem = result.firstItem;
-        var userId = result.userId;
-        var tracksData = result.tracksData;
-
-        Lampa.Player.play(firstItem);
-        if (allRows && allRows.length) {
-          var playlist = playlistFromRows(rows, userId);
-          Lampa.Player.playlist(playlist);
-        }
-
-        // Отправляем событие для плагина tracks.js
-        if (tracksData) {
-          Lampa.Listener.send('player_tracks', tracksData);
-          console.log('[Jellyfin] Sent player_tracks event');
-        }
-      })
-      .catch(function (err) {
-        console.error('[Jellyfin] playRow error:', err);
-        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-      });
   }
 
   function playItemFromRow(row, userId, includeMovie) {
@@ -1348,7 +1250,10 @@
   }
 
   function hubHasContent(data) {
-    return !!(data.resume.rows.length || data.latest.rows.length || data.movies.rows.length || data.series.rows.length);
+    return !!(data.resume.rows.length ||
+      data.latest.rows.length ||
+      data.movies.rows.length ||
+      data.series.rows.length);
   }
 
   function HubFallbackComponent(object, hubCtx) {
@@ -1683,6 +1588,19 @@
       method: tmdb.method,
       source: Lampa.Storage.get('source') || 'tmdb',
     });
+  }
+
+  function playRow(row, allRows) {
+    var rows = allRows && allRows.length ? allRows : [row];
+    resolveUserId()
+      .then(function (userId) {
+        var playlist = playlistFromRows(rows, userId);
+        Lampa.Player.play(playItemFromRow(row, userId, true));
+        Lampa.Player.playlist(playlist);
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
   }
 
   function episodePickerItem(row) {
@@ -2418,6 +2336,84 @@
     });
   }
 
+  // Новая функция для обработки дорожек при воспроизведении
+  function setupTracksForJellyfin() {
+    Lampa.Player.listener.follow('start', function(data) {
+      // Проверяем, что это наш плеер (имеется объект movie с Id)
+      if (!data || !data.movie || !data.movie.Id) return;
+      // Работаем только при транскодировании (встроенный плеер)
+      if (!transcodingEnabled()) return;
+
+      var itemId = data.movie.Id;
+      resolveUserId().then(function(userId) {
+        // Запрос PlaybackInfo для получения списка потоков
+        var url = '/Items/' + encodeURIComponent(itemId) +
+                  '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
+                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true';
+        return jfHttp(url);
+      }).then(function(info) {
+        if (!info || !info.MediaSources || !info.MediaSources.length) return;
+        var source = info.MediaSources[0];
+        var streams = source.MediaStreams || [];
+
+        var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
+        var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
+
+        // Функция, которая будет вызвана после загрузки видео
+        function setTracksAndSubs() {
+          var video = Lampa.PlayerVideo.video();
+          if (!video) return;
+
+          var audioTracks = video.audioTracks;
+          var textTracks = video.textTracks;
+
+          var tracks = [];
+          // Сопоставляем по порядку (количество должно совпадать)
+          if (audioTracks && audioTracks.length === audioStreams.length) {
+            for (var i = 0; i < audioTracks.length; i++) {
+              var stream = audioStreams[i];
+              tracks.push({
+                index: i, // позиция в audioTracks
+                language: stream.Language || '',
+                label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
+                selected: stream.IsDefault || false
+              });
+            }
+          }
+
+          var subs = [];
+          if (textTracks && textTracks.length === subStreams.length) {
+            for (var i = 0; i < textTracks.length; i++) {
+              var stream = subStreams[i];
+              subs.push({
+                index: i,
+                language: stream.Language || '',
+                label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
+                selected: stream.IsDefault || false
+              });
+            }
+          }
+
+          if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
+          if (subs.length) Lampa.PlayerPanel.setSubs(subs);
+
+          // Отписываемся, чтобы не вызывать повторно
+          Lampa.PlayerVideo.listener.remove('canplay', setTracksAndSubs);
+        }
+
+        // Если видео уже загружено – применяем сразу, иначе ждём canplay
+        var video = Lampa.PlayerVideo.video();
+        if (video && video.readyState >= 3) {
+          setTracksAndSubs();
+        } else {
+          Lampa.PlayerVideo.listener.follow('canplay', setTracksAndSubs);
+        }
+      }).catch(function(e) {
+        console.error('Jellyfin tracks setup error:', e);
+      });
+    });
+  }
+
   function init() {
     addLang();
     registerStyles();
@@ -2430,6 +2426,9 @@
     registerMenuButtons();
     injectHeadIcon();
     listenFullCard();
+
+    // Добавляем обработчик дорожек
+    setupTracksForJellyfin();
 
     prefetchAutoUser();
     refreshLibraryIndex(false).catch(function () { });
