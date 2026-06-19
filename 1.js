@@ -46,6 +46,7 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
+  // ----- ДОБАВЛЕНЫ ПЕРЕВОДЫ ДЛЯ НОВЫХ ПУНКТОВ МЕНЮ -----
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -122,11 +123,11 @@
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
       jellyfin_user_auto: { en: 'First user (auto)', ru: 'Первый пользователь (авто)' },
-      // Новые переводы для субтитров и аудио
-      select_subtitle: { en: 'Select subtitles', ru: 'Выбрать субтитры' },
-      select_audio: { en: 'Select audio track', ru: 'Выбрать аудиодорожку' },
-      off: { en: 'Off', ru: 'Выключить' },
-      auto: { en: 'Auto', ru: 'Авто' },
+      // Новые переводы для пунктов меню
+      jellyfin_select_subtitle: { en: 'Select subtitles', ru: 'Выбрать субтитры' },
+      jellyfin_select_audio: { en: 'Select audio track', ru: 'Выбрать аудиодорожку' },
+      jellyfin_subtitle_off: { en: 'Off', ru: 'Выключить' },
+      jellyfin_subtitle_auto: { en: 'Auto', ru: 'Авто' },
     });
   }
 
@@ -541,16 +542,11 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // Изменённая функция streamUrl с поддержкой субтитров и аудио
+  // ---------- ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с поддержкой субтитров и аудио ----------
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
     if (!id) return '';
-
-    // Получаем сохранённые настройки субтитров и аудио
-    var selectedSubtitle = storageStr('SelectedSubtitle', '');
-    var selectedAudio = storageStr('SelectedAudio', '');
-    var subtitleMode = storageStr('SubtitleMode', 'auto');
 
     var parts = [
       'DeviceId=' + encodeURIComponent(getDeviceId()),
@@ -573,22 +569,15 @@
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
 
-    // Параметры субтитров
-    if (selectedSubtitle) {
-      parts.push('SubtitleStreamIndex=' + encodeURIComponent(selectedSubtitle));
+    // ----- Добавлены параметры субтитров и аудио (если переданы) -----
+    if (opts.subtitleIndex !== undefined && opts.subtitleIndex !== null) {
+      parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleIndex));
     }
-    parts.push('SubtitleCodec=mov_text');
-    parts.push('SubtitleMethod=Encode');
-
-    // Параметры аудио
-    if (selectedAudio) {
-      parts.push('AudioStreamIndex=' + encodeURIComponent(selectedAudio));
+    if (opts.audioIndex !== undefined && opts.audioIndex !== null) {
+      parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioIndex));
     }
-
-    // Отключение субтитров
-    if (subtitleMode === 'off') {
-      parts.push('SubtitleStreamIndex=0');
-    }
+    // Если субтитры явно не выбраны, но включены (auto или off) – можно добавить параметры по умолчанию
+    // Здесь оставляем как есть, чтобы не ломать существующее поведение
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
@@ -598,12 +587,15 @@
     if (!transcodingEnabled()) return null;
     var map = {};
     PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-      map[entry.key] = streamUrl(itemId, Object.assign({}, opts, { qualityPreset: entry.preset }));
+      // Передаём параметры субтитров и аудио в каждый quality
+      var qOpts = Object.assign({}, opts, { qualityPreset: entry.preset });
+      map[entry.key] = streamUrl(itemId, qOpts);
     });
     return map;
   }
 
-  // Новая функция для получения информации о медиа-потоках (субтитры, аудио)
+  // ---------- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С СУБТИТРАМИ И АУДИО ----------
+  // Получение информации о медиа-потоках (субтитры, аудио)
   function fetchMediaSources(itemId) {
     return resolveUserId().then(function (userId) {
       return jfHttp('/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId));
@@ -612,99 +604,75 @@
     });
   }
 
-  // Функция получения списка субтитров и аудиодорожек
-  function getSubtitleAndAudioOptions(itemId) {
-    return fetchMediaSources(itemId).then(function (data) {
-      var mediaSources = data.MediaSources || [];
-      if (!mediaSources.length) {
-        return { subtitles: [], audioTracks: [] };
-      }
-
-      var mediaSource = mediaSources[0]; // Используем первый источник
-      var subtitles = (mediaSource.MediaStreams || []).filter(function (stream) {
-        return stream.Type === 'Subtitle';
-      }).map(function (stream) {
-        return {
-          title: stream.DisplayTitle || stream.Language || 'Unknown',
-          value: String(stream.Index),
-          language: stream.Language || '',
-          isDefault: stream.IsDefault || false,
-          isForced: stream.IsForced || false
-        };
-      });
-
-      var audioTracks = (mediaSource.MediaStreams || []).filter(function (stream) {
-        return stream.Type === 'Audio';
-      }).map(function (stream) {
-        return {
-          title: stream.DisplayTitle || stream.Language || 'Unknown',
-          value: String(stream.Index),
-          language: stream.Language || '',
-          isDefault: stream.IsDefault || false,
-          channels: stream.ChannelLayout || ''
-        };
-      });
-
-      var defaultSub = subtitles.find(function (s) { return s.isDefault; });
-      var defaultAudio = audioTracks.find(function (a) { return a.isDefault; });
-
+  // Разбор списка субтитров и аудиодорожек из ответа
+  function parseTracks(playbackInfo) {
+    var mediaSources = playbackInfo.MediaSources || [];
+    if (!mediaSources.length) {
+      return { subtitles: [], audioTracks: [] };
+    }
+    var mediaSource = mediaSources[0]; // берём первый источник
+    var subtitles = (mediaSource.MediaStreams || []).filter(function (stream) {
+      return stream.Type === 'Subtitle';
+    }).map(function (stream) {
       return {
-        subtitles: subtitles,
-        audioTracks: audioTracks,
-        defaultSubtitle: defaultSub ? defaultSub.value : (subtitles.length ? subtitles[0].value : ''),
-        defaultAudio: defaultAudio ? defaultAudio.value : (audioTracks.length ? audioTracks[0].value : '')
+        title: stream.DisplayTitle || stream.Language || 'Unknown',
+        index: stream.Index,
+        isDefault: stream.IsDefault || false,
+        isForced: stream.IsForced || false,
       };
     });
+    var audioTracks = (mediaSource.MediaStreams || []).filter(function (stream) {
+      return stream.Type === 'Audio';
+    }).map(function (stream) {
+      return {
+        title: stream.DisplayTitle || stream.Language || 'Unknown',
+        index: stream.Index,
+        isDefault: stream.IsDefault || false,
+        channels: stream.ChannelLayout || '',
+      };
+    });
+    return { subtitles: subtitles, audioTracks: audioTracks };
   }
 
   // Диалог выбора субтитров
-  function showSubtitleSelector(itemId, onSelect) {
+  function showSubtitleSelector(row, onDone) {
     var ctl = enabledControllerName();
-    getSubtitleAndAudioOptions(itemId).then(function (options) {
-      var subtitleItems = options.subtitles.map(function (sub) {
+    fetchMediaSources(row.id).then(function (data) {
+      var tracks = parseTracks(data);
+      var items = tracks.subtitles.map(function (sub) {
         return {
           title: sub.title + (sub.isDefault ? ' (Default)' : ''),
-          value: sub.value,
-          isDefault: sub.isDefault
+          index: sub.index,
         };
       });
-
-      // Добавляем опцию "Отключить субтитры"
-      subtitleItems.unshift({
-        title: Lampa.Lang.translate('off') || 'Off',
-        value: 'off'
-      });
-
-      // Добавляем опцию "Авто"
-      subtitleItems.unshift({
-        title: Lampa.Lang.translate('auto') || 'Auto',
-        value: 'auto'
-      });
+      // Добавляем пункты "Выключить" и "Авто"
+      items.unshift({ title: Lampa.Lang.translate('jellyfin_subtitle_off'), index: null });
+      items.unshift({ title: Lampa.Lang.translate('jellyfin_subtitle_auto'), index: 'auto' });
 
       Lampa.Select.show({
-        title: Lampa.Lang.translate('select_subtitle') || 'Select subtitles',
-        items: subtitleItems,
+        title: Lampa.Lang.translate('jellyfin_select_subtitle'),
+        items: items,
         onBack: function () {
           deferControllerToggle(ctl);
-          if (typeof onSelect === 'function') onSelect(null);
+          if (typeof onDone === 'function') onDone();
         },
         onSelect: function (item) {
           if (!item) return;
-          var value = item.value;
-          if (value === 'off') {
-            Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'off');
-            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', '');
-          } else if (value === 'auto') {
+          var idx = item.index;
+          if (idx === 'auto') {
             Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'auto');
+            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', '');
+          } else if (idx === null) {
+            Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'off');
             Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', '');
           } else {
             Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'manual');
-            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', value);
+            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', String(idx));
           }
-          Lampa.Settings.update();
+          Lampa.Bell.push({ text: 'Subtitle selection saved' });
           deferControllerToggle(ctl);
-          if (typeof onSelect === 'function') onSelect(item);
-        }
+          if (typeof onDone === 'function') onDone();
+        },
       });
     }).catch(function () {
       Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
@@ -712,73 +680,63 @@
   }
 
   // Диалог выбора аудиодорожки
-  function showAudioSelector(itemId, onSelect) {
+  function showAudioSelector(row, onDone) {
     var ctl = enabledControllerName();
-    getSubtitleAndAudioOptions(itemId).then(function (options) {
-      var audioItems = options.audioTracks.map(function (audio) {
-        return {
-          title: audio.title + (audio.isDefault ? ' (Default)' : ''),
-          value: audio.value,
-          isDefault: audio.isDefault
-        };
-      });
-
-      if (!audioItems.length) {
+    fetchMediaSources(row.id).then(function (data) {
+      var tracks = parseTracks(data);
+      if (!tracks.audioTracks.length) {
         Lampa.Bell.push({ text: 'No audio tracks available' });
         deferControllerToggle(ctl);
-        if (typeof onSelect === 'function') onSelect(null);
+        if (typeof onDone === 'function') onDone();
         return;
       }
-
+      var items = tracks.audioTracks.map(function (audio) {
+        return {
+          title: audio.title + (audio.isDefault ? ' (Default)' : ''),
+          index: audio.index,
+        };
+      });
       Lampa.Select.show({
-        title: Lampa.Lang.translate('select_audio') || 'Select audio track',
-        items: audioItems,
+        title: Lampa.Lang.translate('jellyfin_select_audio'),
+        items: items,
         onBack: function () {
           deferControllerToggle(ctl);
-          if (typeof onSelect === 'function') onSelect(null);
+          if (typeof onDone === 'function') onDone();
         },
         onSelect: function (item) {
           if (!item) return;
-          Lampa.Storage.set(STORAGE_PREFIX + 'SelectedAudio', item.value);
-          Lampa.Settings.update();
+          Lampa.Storage.set(STORAGE_PREFIX + 'SelectedAudio', String(item.index));
+          Lampa.Bell.push({ text: 'Audio track saved' });
           deferControllerToggle(ctl);
-          if (typeof onSelect === 'function') onSelect(item);
-        }
+          if (typeof onDone === 'function') onDone();
+        },
       });
     }).catch(function () {
       Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
     });
   }
 
-  // Добавление кнопок управления субтитрами и аудио на карточку
-  function addMediaControlButtons($root, row) {
-    if (!$root) return;
-    var $buttonsContainer = $root.find('.full-start-new__buttons');
-    if (!$buttonsContainer.length) return;
-
-    // Кнопка субтитров
-    var $subBtn = $(
-      '<div class="full-start__button selector button--subtitle" style="margin-left:8px;">' +
-      '📝 Sub</div>'
-    );
-    $subBtn.on('hover:enter', function () {
-      showSubtitleSelector(row.id);
-    });
-    $buttonsContainer.append($subBtn);
-
-    // Кнопка аудио
-    var $audioBtn = $(
-      '<div class="full-start__button selector button--audio" style="margin-left:8px;">' +
-      '🔊 Aud</div>'
-    );
-    $audioBtn.on('hover:enter', function () {
-      showAudioSelector(row.id);
-    });
-    $buttonsContainer.append($audioBtn);
-  }
-
+  // ---------- ИЗМЕНЁННАЯ playItemFromRow – передаёт сохранённые настройки в URL ----------
   function playItemFromRow(row, userId, includeMovie) {
     var opts = { userId: userId, startTicks: rowStartTicks(row) };
+
+    // Читаем сохранённые настройки субтитров и аудио
+    var subMode = storageStr('SubtitleMode', 'auto');
+    var subIdx = storageStr('SelectedSubtitle', '');
+    var audioIdx = storageStr('SelectedAudio', '');
+
+    if (subMode === 'off') {
+      opts.subtitleIndex = 0; // 0 обычно означает "нет субтитров" в Jellyfin (но лучше уточнить)
+    } else if (subMode === 'manual' && subIdx) {
+      opts.subtitleIndex = parseInt(subIdx, 10);
+    } else if (subMode === 'auto') {
+      // Не передаём индекс – Jellyfin выберет по умолчанию (или не выберет, если нет)
+      // Можно вообще не добавлять параметр
+    }
+    if (audioIdx) {
+      opts.audioIndex = parseInt(audioIdx, 10);
+    }
+
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
@@ -791,16 +749,6 @@
     }
     if (qualityMap) item.quality = qualityMap;
     if (includeMovie) item.movie = row.raw;
-
-    // Добавляем информацию о субтитрах и аудио
-    item.subtitle = {
-      selected: storageStr('SelectedSubtitle', ''),
-      mode: storageStr('SubtitleMode', 'auto')
-    };
-    item.audio = {
-      selected: storageStr('SelectedAudio', '')
-    };
-
     return item;
   }
 
@@ -1929,6 +1877,7 @@
     Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
   }
 
+  // ---------- ИЗМЕНЁННАЯ ФУНКЦИЯ showItemMenu – добавлены пункты для субтитров и аудио ----------
   function showItemMenu(row) {
     var ctl = enabledControllerName();
     var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
@@ -1938,6 +1887,11 @@
     }
     if (row.type === 'Series') {
       items.push({ title: Lampa.Lang.translate('jellyfin_episodes'), action: 'episodes' });
+    }
+    // Добавляем пункты выбора субтитров и аудио (только для фильмов и эпизодов, не для сериалов целиком)
+    if (row.type !== 'Series') {
+      items.push({ title: Lampa.Lang.translate('jellyfin_select_subtitle'), action: 'subtitle' });
+      items.push({ title: Lampa.Lang.translate('jellyfin_select_audio'), action: 'audio' });
     }
     items.push({
       title: Lampa.Lang.translate(row.watched ? 'jellyfin_mark_unwatched' : 'jellyfin_mark_watched'),
@@ -1959,6 +1913,14 @@
             if (!eps.length) Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
             else showEpisodePicker(eps);
           });
+        } else if (sel.action === 'subtitle') {
+          showSubtitleSelector(row, function () {
+            deferControllerToggle(ctl);
+          });
+        } else if (sel.action === 'audio') {
+          showAudioSelector(row, function () {
+            deferControllerToggle(ctl);
+          });
         } else if (sel.action === 'watched' || sel.action === 'unwatched') {
           var markWatched = sel.action === 'watched';
           setItemWatched(row, markWatched)
@@ -1969,7 +1931,12 @@
               Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
             });
         }
-        deferControllerToggle(ctl);
+        // Не забываем вернуть контроль, если не было вызова deferControllerToggle внутри обработчика
+        // Для пунктов subtitle/audio уже вызывается deferControllerToggle внутри их функций
+        // Для остальных делаем здесь
+        if (sel.action !== 'subtitle' && sel.action !== 'audio') {
+          deferControllerToggle(ctl);
+        }
       },
     });
   }
@@ -2262,7 +2229,7 @@
     });
   }
 
-  // Модифицированная функция listenFullCard для добавления кнопок субтитров и аудио
+  // Оригинальная listenFullCard без изменений (кнопка "Смотреть из Jellyfin")
   function listenFullCard() {
     Lampa.Listener.follow('full', function (e) {
       if (!storageToggle('FullButton', true)) return;
@@ -2295,11 +2262,6 @@
         var $anchor = $root.find('.view--torrent').first();
         if ($anchor.length) $anchor.after($btn);
         else $root.find('.full-start-new__buttons').append($btn);
-
-        // Добавляем кнопки управления субтитрами и аудио (только для фильмов и эпизодов)
-        if (row.type !== 'Series') {
-          addMediaControlButtons($root, row);
-        }
       }
 
       var cached = findLibraryRow(method, id);
