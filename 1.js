@@ -46,10 +46,6 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
-  // Глобальные значения для дефолтных индексов аудио и субтитров
-  var _defaultAudioIndex = undefined;
-  var _defaultSubtitleIndex = undefined;
-
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -540,24 +536,42 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // Функция для получения PlaybackInfo и установки дефолтных индексов
-  function fetchPlaybackInfoAndSetDefaults(itemId, userId) {
-    return jfHttp('/Items/' + encodeURIComponent(itemId) +
-              '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
-              '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
-      .then(function(info) {
-        if (info && info.MediaSources && info.MediaSources.length) {
-          var source = info.MediaSources[0];
-          _defaultAudioIndex = source.DefaultAudioStreamIndex;
-          _defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
+  // ---------- New function to fetch PlaybackInfo and extract default audio/subtitle indices ----------
+  function fetchPlaybackInfo(itemId, userId) {
+    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId))
+      .then(function (data) {
+        if (!data || !data.MediaSources || !data.MediaSources.length) {
+          return null;
         }
-        return info;
+        var source = data.MediaSources[0];
+        var streams = source.MediaStreams || [];
+        var audioIndex = null;
+        var subtitleIndex = null;
+        streams.forEach(function (stream) {
+          if (stream.Type === 'Audio' && stream.IsDefault === true) {
+            audioIndex = stream.Index;
+          }
+          if (stream.Type === 'Subtitle' && stream.IsDefault === true) {
+            subtitleIndex = stream.Index;
+          }
+        });
+        // fallback to first audio/subtitle if no default found
+        if (audioIndex === null) {
+          var firstAudio = streams.find(function (s) { return s.Type === 'Audio'; });
+          if (firstAudio) audioIndex = firstAudio.Index;
+        }
+        if (subtitleIndex === null) {
+          var firstSub = streams.find(function (s) { return s.Type === 'Subtitle'; });
+          if (firstSub) subtitleIndex = firstSub.Index;
+        }
+        return { audioIndex: audioIndex, subtitleIndex: subtitleIndex };
       })
-      .catch(function(e) {
-        console.error('Failed to fetch PlaybackInfo for defaults:', e);
+      .catch(function () {
+        return null;
       });
   }
 
+  // Modified streamUrl to accept audio/subtitle indices
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -570,21 +584,8 @@
     ];
     if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
-
-    // Подставляем дефолтные индексы, если они не переданы явно
-    if (opts.audioStreamIndex === undefined && _defaultAudioIndex !== undefined) {
-      opts.audioStreamIndex = _defaultAudioIndex;
-    }
-    if (opts.subtitleStreamIndex === undefined && _defaultSubtitleIndex !== undefined) {
-      opts.subtitleStreamIndex = _defaultSubtitleIndex;
-    }
-
-    if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
-      parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioStreamIndex));
-    }
-    if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
-      parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
-    }
+    if (opts.audioIndex != null) parts.push('AudioStreamIndex=' + encodeURIComponent(String(opts.audioIndex)));
+    if (opts.subtitleIndex != null) parts.push('SubtitleStreamIndex=' + encodeURIComponent(String(opts.subtitleIndex)));
 
     if (!transcodingEnabled()) {
       parts.push('Static=true');
@@ -598,7 +599,6 @@
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
-
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
@@ -607,13 +607,20 @@
     if (!transcodingEnabled()) return null;
     var map = {};
     PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-      map[entry.key] = streamUrl(itemId, Object.assign({}, opts, { qualityPreset: entry.preset }));
+      var optsCopy = Object.assign({}, opts, { qualityPreset: entry.preset });
+      map[entry.key] = streamUrl(itemId, optsCopy);
     });
     return map;
   }
 
-  function playItemFromRow(row, userId, includeMovie) {
-    var opts = { userId: userId, startTicks: rowStartTicks(row) };
+  // Modified playItemFromRow to accept audio/subtitle indices
+  function playItemFromRow(row, userId, includeMovie, audioIndex, subtitleIndex) {
+    var opts = {
+      userId: userId,
+      startTicks: rowStartTicks(row),
+      audioIndex: audioIndex,
+      subtitleIndex: subtitleIndex
+    };
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
@@ -629,9 +636,12 @@
     return item;
   }
 
-  function playlistFromRows(rows, userId) {
+  function playlistFromRows(rows, userId, indicesMap) {
     return rows.map(function (row) {
-      return playItemFromRow(row, userId, false);
+      var info = indicesMap ? indicesMap[row.id] : null;
+      var audioIndex = info ? info.audioIndex : null;
+      var subtitleIndex = info ? info.subtitleIndex : null;
+      return playItemFromRow(row, userId, false, audioIndex, subtitleIndex);
     });
   }
 
@@ -1622,20 +1632,31 @@
     });
   }
 
-  // Переопределяем playRow для получения дефолтных индексов перед воспроизведением
+  // Modified playRow to fetch PlaybackInfo for each row and use default audio/subtitle indices
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
-        // Получаем PlaybackInfo для первого элемента, чтобы установить дефолтные индексы
-        return fetchPlaybackInfoAndSetDefaults(row.id, userId).then(function() {
-          return userId;
+        // Fetch PlaybackInfo for all rows in parallel
+        return Promise.all(rows.map(function (r) {
+          return fetchPlaybackInfo(r.id, userId).then(function (info) {
+            return { row: r, info: info };
+          });
+        })).then(function (results) {
+          // Build playlist items with correct audio/subtitle indices
+          var playlist = results.map(function (item) {
+            var audioIndex = item.info ? item.info.audioIndex : null;
+            var subtitleIndex = item.info ? item.info.subtitleIndex : null;
+            return playItemFromRow(item.row, userId, false, audioIndex, subtitleIndex);
+          });
+          // First item for immediate playback (with movie data)
+          var first = results[0];
+          var firstAudio = first.info ? first.info.audioIndex : null;
+          var firstSub = first.info ? first.info.subtitleIndex : null;
+          var firstItem = playItemFromRow(first.row, userId, true, firstAudio, firstSub);
+          Lampa.Player.play(firstItem);
+          Lampa.Player.playlist(playlist);
         });
-      })
-      .then(function (userId) {
-        var playlist = playlistFromRows(rows, userId);
-        Lampa.Player.play(playItemFromRow(row, userId, true));
-        Lampa.Player.playlist(playlist);
       })
       .catch(function () {
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
@@ -2375,124 +2396,6 @@
     });
   }
 
-  // Функция для обработки дорожек и управления переключением (для UI)
-  function setupTracksForJellyfin() {
-    var currentMovie = null;
-    var currentUserId = null;
-    var currentAudioIndex = null;
-    var currentSubtitleIndex = null;
-
-    function switchAudio(index) {
-      if (!currentMovie) return;
-      currentAudioIndex = index;
-      var opts = {
-        userId: currentUserId,
-        startTicks: 0,
-        audioStreamIndex: index,
-        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : _defaultSubtitleIndex,
-        qualityPreset: defaultTranscodePresetKey()
-      };
-      var url = streamUrl(currentMovie.Id, opts);
-      Lampa.Player.play({
-        title: currentMovie.Name || 'Video',
-        url: url,
-        movie: currentMovie,
-        quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
-    }
-
-    function switchSubtitle(index) {
-      if (!currentMovie) return;
-      currentSubtitleIndex = index;
-      var opts = {
-        userId: currentUserId,
-        startTicks: 0,
-        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : _defaultAudioIndex,
-        subtitleStreamIndex: index,
-        qualityPreset: defaultTranscodePresetKey()
-      };
-      var url = streamUrl(currentMovie.Id, opts);
-      Lampa.Player.play({
-        title: currentMovie.Name || 'Video',
-        url: url,
-        movie: currentMovie,
-        quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
-    }
-
-    Lampa.Player.listener.follow('start', function(data) {
-      if (!data || !data.movie || !data.movie.Id) return;
-      if (!transcodingEnabled()) return;
-
-      var itemId = data.movie.Id;
-      currentMovie = data.movie;
-      resolveUserId().then(function(userId) {
-        currentUserId = userId;
-        return fetchPlaybackInfoAndSetDefaults(itemId, userId);
-      }).then(function(info) {
-        if (!info || !info.MediaSources || !info.MediaSources.length) return;
-        var source = info.MediaSources[0];
-        var streams = source.MediaStreams || [];
-        var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
-        var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
-
-        _defaultAudioIndex = source.DefaultAudioStreamIndex;
-        _defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
-        currentAudioIndex = _defaultAudioIndex;
-        currentSubtitleIndex = _defaultSubtitleIndex;
-
-        var tracks = [];
-        audioStreams.forEach(function(stream, i) {
-          var track = {
-            index: stream.Index,
-            language: stream.Language || '',
-            label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
-            selected: (stream.Index === _defaultAudioIndex)
-          };
-          Object.defineProperty(track, "enabled", {
-            set: function(v) {
-              if (v) {
-                switchAudio(stream.Index);
-                tracks.forEach(function(t) { t.selected = false; });
-                track.selected = true;
-                Lampa.PlayerPanel.setTracks(tracks);
-              }
-            },
-            get: function() { return track.selected; }
-          });
-          tracks.push(track);
-        });
-
-        var subs = [];
-        subStreams.forEach(function(stream, i) {
-          var sub = {
-            index: stream.Index,
-            language: stream.Language || '',
-            label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
-            selected: (stream.Index === _defaultSubtitleIndex)
-          };
-          Object.defineProperty(sub, "mode", {
-            set: function(v) {
-              if (v === 'showing') {
-                switchSubtitle(stream.Index);
-                subs.forEach(function(s) { s.selected = false; });
-                sub.selected = true;
-                Lampa.PlayerPanel.setSubs(subs);
-              }
-            },
-            get: function() { return sub.selected ? 'showing' : 'disabled'; }
-          });
-          subs.push(sub);
-        });
-
-        if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
-        if (subs.length) Lampa.PlayerPanel.setSubs(subs);
-      }).catch(function(e) {
-        console.error('Jellyfin tracks setup error:', e);
-      });
-    });
-  }
-
   function init() {
     addLang();
     registerStyles();
@@ -2505,8 +2408,6 @@
     registerMenuButtons();
     injectHeadIcon();
     listenFullCard();
-
-    setupTracksForJellyfin();
 
     prefetchAutoUser();
     refreshLibraryIndex(false).catch(function () { });
