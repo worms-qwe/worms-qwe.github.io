@@ -549,6 +549,14 @@
     if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
 
+    // Добавляем параметры индексов аудио и субтитров, если переданы
+    if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
+      parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioStreamIndex));
+    }
+    if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
+      parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
+    }
+
     if (!transcodingEnabled()) {
       parts.push('Static=true');
       return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
@@ -561,11 +569,6 @@
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
-
-    // Добавляем параметры для включения всех аудио и субтитровых дорожек
-    parts.push('IncludeAllAudioStreams=true');
-    parts.push('IncludeAllSubtitleStreams=true');
-    parts.push('SubtitleCodec=srt');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
@@ -2336,168 +2339,127 @@
     });
   }
 
-  // Новая функция для обработки дорожек, аналогично tracks.js
+  // Новая функция для обработки дорожек
   function setupTracksForJellyfin() {
-    var streamsData = null; // будет хранить audioStreams и subStreams
-    var tracksSet = false;
-    var subsSet = false;
-    var inited = false;
+    var currentMediaInfo = null; // хранит данные для переключения
+    var currentMovie = null;
+    var currentUserId = null;
 
-    function setTracks() {
-      if (!streamsData) return;
-      var video = Lampa.PlayerVideo.video();
-      if (!video) return;
-      var audioTracks = video.audioTracks;
-      if (!audioTracks || audioTracks.length === 0) return;
-      var audioStreams = streamsData.audio;
-      if (audioTracks.length !== audioStreams.length) {
-        // Если не совпадает, пробуем фильтровать некоторые кодеки, как в tracks.js
-        var filtered = audioStreams.filter(function(s) {
-          var codec = (s.Codec || '').toLowerCase();
-          return codec !== 'dts' && codec !== 'truehd';
-        });
-        if (audioTracks.length === filtered.length) {
-          audioStreams = filtered;
-        } else {
-          // Если всё равно не совпадает, выходим
-          return;
-        }
-      }
-      var tracks = [];
-      for (var i = 0; i < audioStreams.length; i++) {
-        var orig = audioTracks[i];
-        var track = {
-          index: i,
-          language: audioStreams[i].Language || '',
-          label: audioStreams[i].DisplayTitle || audioStreams[i].Language || ('Audio ' + (i+1)),
-          selected: audioStreams[i].IsDefault || false
-        };
-        // Определяем свойство enabled с сеттером как в tracks.js
-        Object.defineProperty(track, "enabled", {
-          set: function(v) {
-            if (v) {
-              var aud = video.audioTracks;
-              for (var j = 0; j < aud.length; j++) {
-                aud[j].enabled = false;
-                aud[j].selected = false;
-              }
-              if (aud[this.index]) {
-                aud[this.index].enabled = true;
-                aud[this.index].selected = true;
-              }
-            }
-          },
-          get: function() { return orig ? orig.enabled : false; }
-        });
-        tracks.push(track);
-      }
-      if (tracks.length) {
-        Lampa.PlayerPanel.setTracks(tracks);
-        tracksSet = true;
-      }
+    function switchAudio(index) {
+      if (!currentMediaInfo || !currentMovie) return;
+      var opts = {
+        userId: currentUserId,
+        startTicks: 0, // Можно сохранить текущую позицию, но для простоты начнем сначала
+        audioStreamIndex: index,
+        subtitleStreamIndex: currentMediaInfo.defaultSubtitleIndex || undefined,
+        qualityPreset: defaultTranscodePresetKey()
+      };
+      var url = streamUrl(currentMovie.Id, opts);
+      Lampa.Player.play({
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
+      });
     }
 
-    function setSubs() {
-      if (!streamsData) return;
-      var video = Lampa.PlayerVideo.video();
-      if (!video) return;
-      var textTracks = video.textTracks;
-      if (!textTracks || textTracks.length === 0) return;
-      var subStreams = streamsData.subs;
-      if (textTracks.length !== subStreams.length) {
-        // Фильтруем некоторые кодеки субтитров, например, hdmv_pgs_subtitle
-        var filtered = subStreams.filter(function(s) {
-          var codec = (s.Codec || '').toLowerCase();
-          return codec !== 'hdmv_pgs_subtitle';
-        });
-        if (textTracks.length === filtered.length) {
-          subStreams = filtered;
-        } else {
-          return;
-        }
-      }
-      var subs = [];
-      for (var i = 0; i < subStreams.length; i++) {
-        var orig = textTracks[i];
-        var sub = {
-          index: i,
-          language: subStreams[i].Language || '',
-          label: subStreams[i].DisplayTitle || subStreams[i].Language || ('Subtitle ' + (i+1)),
-          selected: subStreams[i].IsDefault || false
-        };
-        Object.defineProperty(sub, "mode", {
-          set: function(v) {
-            if (v) {
-              var txt = video.textTracks;
-              for (var j = 0; j < txt.length; j++) {
-                txt[j].mode = 'disabled';
-                txt[j].selected = false;
-              }
-              if (txt[this.index]) {
-                txt[this.index].mode = 'showing';
-                txt[this.index].selected = true;
-              }
-            }
-          },
-          get: function() { return orig ? orig.mode : 'disabled'; }
-        });
-        subs.push(sub);
-      }
-      if (subs.length) {
-        Lampa.PlayerPanel.setSubs(subs);
-        subsSet = true;
-      }
-    }
-
-    function listenTracks() {
-      if (!tracksSet) setTracks();
-    }
-
-    function listenSubs() {
-      if (!subsSet) setSubs();
-    }
-
-    function canPlay() {
-      if (!tracksSet) setTracks();
-      if (!subsSet) setSubs();
-    }
-
-    function listenDestroy() {
-      inited = false;
-      Lampa.PlayerVideo.listener.remove('tracks', listenTracks);
-      Lampa.PlayerVideo.listener.remove('subs', listenSubs);
-      Lampa.PlayerVideo.listener.remove('canplay', canPlay);
-      Lampa.Player.listener.remove('destroy', listenDestroy);
+    function switchSubtitle(index) {
+      if (!currentMediaInfo || !currentMovie) return;
+      var opts = {
+        userId: currentUserId,
+        startTicks: 0,
+        audioStreamIndex: currentMediaInfo.defaultAudioIndex || undefined,
+        subtitleStreamIndex: index,
+        qualityPreset: defaultTranscodePresetKey()
+      };
+      var url = streamUrl(currentMovie.Id, opts);
+      Lampa.Player.play({
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
+      });
     }
 
     Lampa.Player.listener.follow('start', function(data) {
       if (!data || !data.movie || !data.movie.Id) return;
       if (!transcodingEnabled()) return;
+
       var itemId = data.movie.Id;
+      currentMovie = data.movie;
       resolveUserId().then(function(userId) {
-        var url = '/Items/' + encodeURIComponent(itemId) +
+        currentUserId = userId;
+        return jfHttp('/Items/' + encodeURIComponent(itemId) +
                   '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
-                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true';
-        return jfHttp(url);
+                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true');
       }).then(function(info) {
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
         var streams = source.MediaStreams || [];
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
-        streamsData = { audio: audioStreams, subs: subStreams };
 
-        // Подписываемся на события, как в tracks.js
-        Lampa.PlayerVideo.listener.follow('tracks', listenTracks);
-        Lampa.PlayerVideo.listener.follow('subs', listenSubs);
-        Lampa.PlayerVideo.listener.follow('canplay', canPlay);
-        Lampa.Player.listener.follow('destroy', listenDestroy);
+        // Запоминаем дефолтные индексы
+        var defaultAudioIndex = source.DefaultAudioStreamIndex;
+        var defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
 
-        // Если видео уже загружено, вызываем canPlay
-        var video = Lampa.PlayerVideo.video();
-        if (video && video.readyState >= 3) {
-          canPlay();
-        }
+        currentMediaInfo = {
+          audioStreams: audioStreams,
+          subStreams: subStreams,
+          defaultAudioIndex: defaultAudioIndex,
+          defaultSubtitleIndex: defaultSubtitleIndex
+        };
+
+        // Создаем объекты дорожек для Lampa.PlayerPanel
+        var tracks = [];
+        audioStreams.forEach(function(stream, i) {
+          var track = {
+            index: stream.Index,
+            language: stream.Language || '',
+            label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
+            selected: (stream.Index === defaultAudioIndex)
+          };
+          // Сеттер для выбора аудио
+          Object.defineProperty(track, "enabled", {
+            set: function(v) {
+              if (v) {
+                switchAudio(stream.Index);
+                // Обновляем состояние выбранности
+                tracks.forEach(function(t) { t.selected = false; });
+                track.selected = true;
+                // Обновляем интерфейс
+                Lampa.PlayerPanel.setTracks(tracks);
+              }
+            },
+            get: function() { return track.selected; }
+          });
+          tracks.push(track);
+        });
+
+        var subs = [];
+        subStreams.forEach(function(stream, i) {
+          var sub = {
+            index: stream.Index,
+            language: stream.Language || '',
+            label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
+            selected: (stream.Index === defaultSubtitleIndex)
+          };
+          Object.defineProperty(sub, "mode", {
+            set: function(v) {
+              if (v === 'showing') {
+                switchSubtitle(stream.Index);
+                subs.forEach(function(s) { s.selected = false; });
+                sub.selected = true;
+                Lampa.PlayerPanel.setSubs(subs);
+              }
+            },
+            get: function() { return sub.selected ? 'showing' : 'disabled'; }
+          });
+          subs.push(sub);
+        });
+
+        if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
+        if (subs.length) Lampa.PlayerPanel.setSubs(subs);
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
       });
@@ -2517,7 +2479,6 @@
     injectHeadIcon();
     listenFullCard();
 
-    // Добавляем обработчик дорожек
     setupTracksForJellyfin();
 
     prefetchAutoUser();
