@@ -577,28 +577,30 @@
     return map;
   }
 
-  // ----- НОВЫЕ ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ДОРОЖЕК -----
+  // ----- ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ МЕДИА-ИСТОЧНИКОВ (используем /Videos/{Id}/MediaSources) -----
   function fetchMediaSources(itemId) {
     return resolveUserId().then(function (userId) {
-      var url = '/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0';
-      console.log('[Jellyfin] Fetching playback info:', url);
+      // Запрашиваем медиа-источники напрямую
+      var url = '/Videos/' + encodeURIComponent(itemId) + '/MediaSources';
+      console.log('[Jellyfin] Fetching media sources:', url);
       return jfHttp(url);
     }).then(function (data) {
-      console.log('[Jellyfin] Playback info received:', data);
-      return data;
+      console.log('[Jellyfin] Media sources response:', data);
+      // Ожидается массив MediaSourceInfo
+      if (Array.isArray(data) && data.length) {
+        return data[0]; // берём первый источник
+      }
+      return null;
     }).catch(function (err) {
-      console.error('[Jellyfin] Error fetching playback info:', err);
+      console.error('[Jellyfin] Error fetching media sources:', err);
       throw err;
     });
   }
 
-  function parseTracks(playbackInfo) {
-    var mediaSources = playbackInfo.MediaSources || [];
-    if (!mediaSources.length) {
-      return { subtitles: [], audioTracks: [] };
-    }
-    var mediaSource = mediaSources[0];
-    var subtitles = (mediaSource.MediaStreams || []).filter(function (stream) {
+  function parseTracks(mediaSource) {
+    if (!mediaSource) return { subtitles: [], audioTracks: [] };
+    var streams = mediaSource.MediaStreams || [];
+    var subtitles = streams.filter(function (stream) {
       return stream.Type === 'Subtitle';
     }).map(function (stream) {
       return {
@@ -609,7 +611,7 @@
         default: stream.IsDefault || false,
       };
     });
-    var audioTracks = (mediaSource.MediaStreams || []).filter(function (stream) {
+    var audioTracks = streams.filter(function (stream) {
       return stream.Type === 'Audio';
     }).map(function (stream) {
       return {
@@ -623,15 +625,15 @@
     return { subtitles: subtitles, audioTracks: audioTracks };
   }
 
-  // ----- ИЗМЕНЁННАЯ playRow с получением дорожек и передачей в плеер -----
+  // ----- ИЗМЕНЁННАЯ playRow -----
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
         var firstItem = playItemFromRow(row, userId, true);
-        // Запрашиваем дорожки для первого элемента
-        return fetchMediaSources(row.id).then(function (data) {
-          var tracks = parseTracks(data);
+        // Запрашиваем медиа-источники
+        return fetchMediaSources(row.id).then(function (mediaSource) {
+          var tracks = parseTracks(mediaSource);
           var tracksData = null;
           if (tracks.audioTracks.length || tracks.subtitles.length) {
             tracksData = {
@@ -664,13 +666,14 @@
           Lampa.Player.playlist(playlist);
         }
 
-        // Отправляем событие для плагина tracks.js (на всякий случай)
+        // Отправляем событие для плагина tracks.js
         if (tracksData) {
           Lampa.Listener.send('player_tracks', tracksData);
           console.log('[Jellyfin] Sent player_tracks event');
         }
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.error('[Jellyfin] playRow error:', err);
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
@@ -1804,7 +1807,6 @@
     Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
   }
 
-  // Контекстное меню без пунктов выбора субтитров и аудио (они теперь в плеере)
   function showItemMenu(row) {
     var ctl = enabledControllerName();
     var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
