@@ -536,7 +536,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // streamUrl теперь без параметров субтитров и аудио
+  // streamUrl без параметров субтитров и аудио (все дорожки доступны в HLS)
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -577,16 +577,21 @@
     return map;
   }
 
-  // Функция для получения информации о медиа-потоках (субтитры, аудио)
+  // ----- НОВЫЕ ФУНКЦИИ ДЛЯ ПОЛУЧЕНИЯ ДОРОЖЕК -----
   function fetchMediaSources(itemId) {
     return resolveUserId().then(function (userId) {
-      return jfHttp('/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0');
+      var url = '/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0';
+      console.log('[Jellyfin] Fetching playback info:', url);
+      return jfHttp(url);
     }).then(function (data) {
+      console.log('[Jellyfin] Playback info received:', data);
       return data;
+    }).catch(function (err) {
+      console.error('[Jellyfin] Error fetching playback info:', err);
+      throw err;
     });
   }
 
-  // Парсинг дорожек из ответа PlaybackInfo
   function parseTracks(playbackInfo) {
     var mediaSources = playbackInfo.MediaSources || [];
     if (!mediaSources.length) {
@@ -618,23 +623,56 @@
     return { subtitles: subtitles, audioTracks: audioTracks };
   }
 
-  // Отправка дорожек в плеер через событие
-  function sendTracksToPlayer(itemId) {
-    fetchMediaSources(itemId).then(function (data) {
-      var tracks = parseTracks(data);
-      var tracksData = {
-        audio: tracks.audioTracks.map(function (t) {
-          return { id: t.id, title: t.title, language: t.language };
-        }),
-        subtitle: tracks.subtitles.map(function (t) {
-          return { id: t.id, title: t.title, language: t.language, forced: t.forced };
-        })
-      };
-      // Отправляем событие в плеер
-      Lampa.Listener.send('player_tracks', tracksData);
-    }).catch(function (err) {
-      console.warn('Jellyfin: failed to fetch tracks for player', err);
-    });
+  // ----- ИЗМЕНЁННАЯ playRow с получением дорожек и передачей в плеер -----
+  function playRow(row, allRows) {
+    var rows = allRows && allRows.length ? allRows : [row];
+    resolveUserId()
+      .then(function (userId) {
+        var firstItem = playItemFromRow(row, userId, true);
+        // Запрашиваем дорожки для первого элемента
+        return fetchMediaSources(row.id).then(function (data) {
+          var tracks = parseTracks(data);
+          var tracksData = null;
+          if (tracks.audioTracks.length || tracks.subtitles.length) {
+            tracksData = {
+              audio: tracks.audioTracks.map(function (t) {
+                return { id: t.id, title: t.title, language: t.language };
+              }),
+              subtitle: tracks.subtitles.map(function (t) {
+                return { id: t.id, title: t.title, language: t.language, forced: t.forced };
+              })
+            };
+            firstItem.tracks = tracksData;
+            console.log('[Jellyfin] Tracks added to item:', tracksData);
+          } else {
+            console.log('[Jellyfin] No tracks found for this item');
+          }
+          return { firstItem: firstItem, userId: userId, tracksData: tracksData };
+        }).catch(function (err) {
+          console.warn('[Jellyfin] Failed to fetch tracks, continuing without tracks', err);
+          return { firstItem: firstItem, userId: userId, tracksData: null };
+        });
+      })
+      .then(function (result) {
+        var firstItem = result.firstItem;
+        var userId = result.userId;
+        var tracksData = result.tracksData;
+
+        Lampa.Player.play(firstItem);
+        if (allRows && allRows.length) {
+          var playlist = playlistFromRows(rows, userId);
+          Lampa.Player.playlist(playlist);
+        }
+
+        // Отправляем событие для плагина tracks.js (на всякий случай)
+        if (tracksData) {
+          Lampa.Listener.send('player_tracks', tracksData);
+          console.log('[Jellyfin] Sent player_tracks event');
+        }
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
   }
 
   function playItemFromRow(row, userId, includeMovie) {
@@ -1644,23 +1682,6 @@
     });
   }
 
-  function playRow(row, allRows) {
-    var rows = allRows && allRows.length ? allRows : [row];
-    resolveUserId()
-      .then(function (userId) {
-        var playlist = playlistFromRows(rows, userId);
-        var firstItem = playItemFromRow(row, userId, true);
-        Lampa.Player.play(firstItem);
-        Lampa.Player.playlist(playlist);
-
-        // После запуска плеера получаем список дорожек и отправляем в плеер
-        sendTracksToPlayer(row.id);
-      })
-      .catch(function () {
-        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-      });
-  }
-
   function episodePickerItem(row) {
     var raw = row.raw || {};
     var code = episodeCodeShort(raw);
@@ -1783,7 +1804,7 @@
     Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
   }
 
-  // Контекстное меню — убраны пункты выбора субтитров и аудио
+  // Контекстное меню без пунктов выбора субтитров и аудио (они теперь в плеере)
   function showItemMenu(row) {
     var ctl = enabledControllerName();
     var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
