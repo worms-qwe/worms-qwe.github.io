@@ -1,24 +1,21 @@
 (function () {
-    console.log("Блокировка рекламы активирована");
+    console.log("11111111");
 
-    // Подменяем проверку подписки (премиум аккаунт)
     window.Account = window.Account || {};
     window.Account.hasPremium = () => true;
 
-    // Ломаем создание <video> для рекламы
     document.createElement = new Proxy(document.createElement, {
         apply(target, thisArg, args) {
             if (args[0] === "video") {
-                console.log("Перехватываем создание <video> для рекламы!");
+                console.log("123123121234");
 
                 let fakeVideo = target.apply(thisArg, args);
 
-                // Запрещаем рекламе воспроизводиться
                 fakeVideo.play = function () {
-                    console.log("Рекламное видео заблокировано!");
+                    console.log("8995678569");
                     setTimeout(() => {
                         fakeVideo.ended = true;
-                        fakeVideo.dispatchEvent(new Event("ended")); // Эмулируем завершение рекламы
+                        fakeVideo.dispatchEvent(new Event("ended"));
                     }, 500);
                 };
 
@@ -28,9 +25,8 @@
         }
     });
 
-    // Очищаем таймеры рекламы
     function clearAdTimers() {
-        console.log("Очищаем рекламные таймеры...");
+        console.log("--00000000--");
         let highestTimeout = setTimeout(() => {}, 0);
         for (let i = 0; i <= highestTimeout; i++) {
             clearTimeout(i);
@@ -38,6 +34,5 @@
         }
     }
 
-    // Убираем рекламу после загрузки страницы
     document.addEventListener("DOMContentLoaded", clearAdTimers);
 })();
