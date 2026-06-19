@@ -2408,70 +2408,70 @@
         var currentSubtitleIndex = null;
     
         function switchAudio(index) {
-        if (!currentMovie) return;
-    
-        // Сохраняем выбранный индекс
-        currentAudioIndex = index;
-        if (_savedStreams[currentMovie.Id]) {
-            _savedStreams[currentMovie.Id].audio = index;
-        } else {
-            _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
-        }
-    
-        // Получаем текущее время (в секундах)
-        var currentTime = 0;
-        try {
-            var video = Lampa.PlayerVideo.video();
-            if (video) currentTime = video.currentTime || 0;
-        } catch (e) {}
-    
-        // Формируем параметры для нового URL
-        var opts = {
-            userId: currentUserId,
-            startTicks: Math.floor(currentTime * 10000000), // переводим в тики
-            audioStreamIndex: index,
-            subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-            qualityPreset: defaultTranscodePresetKey()
-        };
-        var newUrl = streamUrl(currentMovie.Id, opts);
-    
-        // --- ПРАВИЛЬНЫЙ СПОСОБ ПЕРЕКЛЮЧЕНИЯ В LAMPA ---
-        // 1. Уничтожаем текущий видео-элемент и освобождаем ресурсы
-        Lampa.PlayerVideo.destroy(true); // true - полное уничтожение
-    
-        // 2. Устанавливаем новый URL
-        Lampa.PlayerVideo.url(newUrl, true); // true - принудительная перезагрузка
-    
-        // 3. Обновляем информацию о качестве (если есть)
-        var qualityMap = buildStreamQualityMap(currentMovie.Id, opts);
-        if (qualityMap) {
-            // Если есть карта качеств, обновляем её в панели
-            Lampa.PlayerPanel.quality(qualityMap, newUrl);
-        }
-    
-        // 4. Восстанавливаем позицию воспроизведения
-        if (currentTime > 0) {
-            // Небольшая задержка, чтобы видео успело загрузиться
-            setTimeout(function() {
-                try {
-                    var vid = Lampa.PlayerVideo.video();
-                    if (vid && vid.duration) {
-                        vid.currentTime = currentTime;
-                    }
-                } catch (e) {}
-            }, 500);
-        }
-    
-        // 5. Обновляем состояние интерфейса
-        if (work) {
-            work.url = newUrl;
-            if (work.timeline) {
-                work.timeline.continued = false;
-                work.timeline.continued_bloc = false;
-                work.timeline.time = currentTime;
+            if (!currentMovie) return;
+        
+            // Сохраняем выбранный индекс
+            currentAudioIndex = index;
+            if (_savedStreams[currentMovie.Id]) {
+                _savedStreams[currentMovie.Id].audio = index;
+            } else {
+                _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
+            }
+        
+            // Получаем текущее время (в секундах)
+            var currentTime = 0;
+            try {
+                var video = Lampa.PlayerVideo.video();
+                if (video) currentTime = video.currentTime || 0;
+            } catch (e) {}
+        
+            // Формируем параметры для нового URL
+            var opts = {
+                userId: currentUserId,
+                startTicks: Math.floor(currentTime * 10000000), // переводим в тики
+                audioStreamIndex: index,
+                subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+                qualityPreset: defaultTranscodePresetKey()
+            };
+            var newUrl = streamUrl(currentMovie.Id, opts);
+        
+            // --- ПРАВИЛЬНЫЙ СПОСОБ ПЕРЕКЛЮЧЕНИЯ В LAMPA ---
+            // 1. Уничтожаем текущий видео-элемент и освобождаем ресурсы
+            Lampa.PlayerVideo.destroy(true); // true - полное уничтожение
+        
+            // 2. Устанавливаем новый URL
+            Lampa.PlayerVideo.url(newUrl, true); // true - принудительная перезагрузка
+        
+            // 3. Обновляем информацию о качестве (если есть)
+            var qualityMap = buildStreamQualityMap(currentMovie.Id, opts);
+            if (qualityMap) {
+                // Если есть карта качеств, обновляем её в панели
+                Lampa.PlayerPanel.quality(qualityMap, newUrl);
+            }
+        
+            // 4. Восстанавливаем позицию воспроизведения
+            if (currentTime > 0) {
+                // Небольшая задержка, чтобы видео успело загрузиться
+                setTimeout(function() {
+                    try {
+                        var vid = Lampa.PlayerVideo.video();
+                        if (vid && vid.duration) {
+                            vid.currentTime = currentTime;
+                        }
+                    } catch (e) {}
+                }, 500);
+            }
+        
+            // 5. Обновляем состояние интерфейса
+            if (work) {
+                work.url = newUrl;
+                if (work.timeline) {
+                    work.timeline.continued = false;
+                    work.timeline.continued_bloc = false;
+                    work.timeline.time = currentTime;
+                }
             }
         }
-    }
 
     function switchSubtitle(index) {
         if (!currentMovie) return;
