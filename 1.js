@@ -491,7 +491,7 @@
   var PLAYER_TRANSCODE_QUALITIES = [
     { key: '720p', preset: '720p' },
     { key: '1080p', preset: '1080p' },
-    { key: '1440p', preset: '1440p' },
+    { key: '1442p', preset: '1442p' },
     { key: '2160p', preset: '2160p' },
   ];
 
@@ -524,6 +524,7 @@
     parts.push('MaxWidth=' + quality.maxWidth);
     parts.push('h264-profile=high,main,baseline,constrainedbaseline');
     parts.push('h264-level=' + quality.h264Level);
+	parts.push('h264-rangetype=SDR');
     parts.push('TranscodingMaxAudioChannels=6');
   }
 
