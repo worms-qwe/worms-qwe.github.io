@@ -46,9 +46,8 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
-  // Глобальные значения для индексов аудио и субтитров, используемых по умолчанию
-  var _defaultAudioIndex = undefined;
-  var _defaultSubtitleIndex = undefined;
+  // Хранилище выбранных индексов для каждого itemId
+  var _savedStreams = {};
 
   function addLang() {
     Lampa.Lang.add({
@@ -540,8 +539,8 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // Функция получения PlaybackInfo и установки дефолтных индексов на основе IsDefault
-  function fetchPlaybackInfoAndSetDefaults(itemId, userId) {
+  // Функция получения PlaybackInfo и сохранения индексов по IsDefault
+  function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
               '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
               '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
@@ -550,29 +549,31 @@
           var source = info.MediaSources[0];
           var streams = source.MediaStreams || [];
 
-          // Ищем аудио-поток с IsDefault: true
+          var audioIndex, subtitleIndex;
           var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
           if (defaultAudio) {
-            _defaultAudioIndex = defaultAudio.Index;
+            audioIndex = defaultAudio.Index;
           } else {
-            // Если нет дефолтного, берём первый аудио-поток
             var firstAudio = streams.find(function(s) { return s.Type === 'Audio'; });
-            _defaultAudioIndex = firstAudio ? firstAudio.Index : undefined;
+            audioIndex = firstAudio ? firstAudio.Index : undefined;
           }
 
-          // Ищем субтитровый поток с IsDefault: true
           var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
           if (defaultSub) {
-            _defaultSubtitleIndex = defaultSub.Index;
+            subtitleIndex = defaultSub.Index;
           } else {
             var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
-            _defaultSubtitleIndex = firstSub ? firstSub.Index : undefined;
+            subtitleIndex = firstSub ? firstSub.Index : undefined;
+          }
+
+          if (audioIndex !== undefined && subtitleIndex !== undefined) {
+            _savedStreams[itemId] = { audio: audioIndex, subtitle: subtitleIndex };
           }
         }
         return info;
       })
       .catch(function(e) {
-        console.error('Failed to fetch PlaybackInfo for defaults:', e);
+        console.error('Failed to fetch PlaybackInfo:', e);
       });
   }
 
@@ -589,12 +590,13 @@
     if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
 
-    // Подставляем дефолтные индексы, если они не переданы явно
-    if (opts.audioStreamIndex === undefined && _defaultAudioIndex !== undefined) {
-      opts.audioStreamIndex = _defaultAudioIndex;
+    // Используем сохранённые индексы для данного itemId, если они есть
+    var saved = _savedStreams[id];
+    if (opts.audioStreamIndex === undefined && saved && saved.audio !== undefined) {
+      opts.audioStreamIndex = saved.audio;
     }
-    if (opts.subtitleStreamIndex === undefined && _defaultSubtitleIndex !== undefined) {
-      opts.subtitleStreamIndex = _defaultSubtitleIndex;
+    if (opts.subtitleStreamIndex === undefined && saved && saved.subtitle !== undefined) {
+      opts.subtitleStreamIndex = saved.subtitle;
     }
 
     if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
@@ -1640,15 +1642,18 @@
     });
   }
 
-  // Переопределяем playRow для получения дефолтных индексов перед воспроизведением
+  // Переопределяем playRow для получения сохранённых индексов
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
-        // Получаем PlaybackInfo для первого элемента, чтобы установить дефолтные индексы
-        return fetchPlaybackInfoAndSetDefaults(row.id, userId).then(function() {
-          return userId;
-        });
+        // Если для этого itemId ещё нет сохранённых индексов, получаем их
+        if (!_savedStreams[row.id]) {
+          return fetchPlaybackInfoAndSaveStreams(row.id, userId).then(function() {
+            return userId;
+          });
+        }
+        return userId;
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
@@ -2403,11 +2408,17 @@
     function switchAudio(index) {
       if (!currentMovie) return;
       currentAudioIndex = index;
+      // Обновляем сохранённые индексы для этого фильма
+      if (_savedStreams[currentMovie.Id]) {
+        _savedStreams[currentMovie.Id].audio = index;
+      } else {
+        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
+      }
       var opts = {
         userId: currentUserId,
         startTicks: 0,
         audioStreamIndex: index,
-        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : _defaultSubtitleIndex,
+        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
         qualityPreset: defaultTranscodePresetKey()
       };
       var url = streamUrl(currentMovie.Id, opts);
@@ -2422,10 +2433,15 @@
     function switchSubtitle(index) {
       if (!currentMovie) return;
       currentSubtitleIndex = index;
+      if (_savedStreams[currentMovie.Id]) {
+        _savedStreams[currentMovie.Id].subtitle = index;
+      } else {
+        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
+      }
       var opts = {
         userId: currentUserId,
         startTicks: 0,
-        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : _defaultAudioIndex,
+        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
         subtitleStreamIndex: index,
         qualityPreset: defaultTranscodePresetKey()
       };
@@ -2446,7 +2462,17 @@
       currentMovie = data.movie;
       resolveUserId().then(function(userId) {
         currentUserId = userId;
-        return fetchPlaybackInfoAndSetDefaults(itemId, userId);
+        // Если ещё нет сохранённых индексов для этого фильма, получаем их
+        if (!_savedStreams[itemId]) {
+          return fetchPlaybackInfoAndSaveStreams(itemId, userId);
+        }
+        return Promise.resolve();
+      }).then(function() {
+        // Теперь у нас есть сохранённые индексы (или они уже были)
+        // Запрашиваем PlaybackInfo для получения списка потоков (но не перезаписываем индексы)
+        return jfHttp('/Items/' + encodeURIComponent(itemId) +
+                  '/PlaybackInfo?UserId=' + encodeURIComponent(currentUserId) +
+                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true');
       }).then(function(info) {
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
@@ -2454,9 +2480,22 @@
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
 
-        // Дефолтные индексы уже установлены в fetchPlaybackInfoAndSetDefaults
-        currentAudioIndex = _defaultAudioIndex;
-        currentSubtitleIndex = _defaultSubtitleIndex;
+        var saved = _savedStreams[itemId];
+        var defaultAudio = saved ? saved.audio : undefined;
+        var defaultSub = saved ? saved.subtitle : undefined;
+
+        // Если сохранённых нет (что маловероятно), пробуем взять из IsDefault
+        if (defaultAudio === undefined) {
+          var defAudio = audioStreams.find(function(s) { return s.IsDefault; });
+          defaultAudio = defAudio ? defAudio.Index : (audioStreams.length ? audioStreams[0].Index : undefined);
+        }
+        if (defaultSub === undefined) {
+          var defSub = subStreams.find(function(s) { return s.IsDefault; });
+          defaultSub = defSub ? defSub.Index : (subStreams.length ? subStreams[0].Index : undefined);
+        }
+
+        currentAudioIndex = defaultAudio;
+        currentSubtitleIndex = defaultSub;
 
         var tracks = [];
         audioStreams.forEach(function(stream, i) {
@@ -2464,7 +2503,7 @@
             index: stream.Index,
             language: stream.Language || '',
             label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
-            selected: (stream.Index === _defaultAudioIndex)
+            selected: (stream.Index === defaultAudio)
           };
           Object.defineProperty(track, "enabled", {
             set: function(v) {
@@ -2473,7 +2512,7 @@
                 tracks.forEach(function(t) { t.selected = false; });
                 track.selected = true;
                 Lampa.PlayerPanel.setTracks(tracks);
-				console.error('tracks1', tracks);
+                console.error('tracks1', tracks);
               }
             },
             get: function() { return track.selected; }
@@ -2487,7 +2526,7 @@
             index: stream.Index,
             language: stream.Language || '',
             label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
-            selected: (stream.Index === _defaultSubtitleIndex)
+            selected: (stream.Index === defaultSub)
           };
           Object.defineProperty(sub, "mode", {
             set: function(v) {
@@ -2496,7 +2535,7 @@
                 subs.forEach(function(s) { s.selected = false; });
                 sub.selected = true;
                 Lampa.PlayerPanel.setSubs(subs);
-				console.error('subs1', subs);
+                console.error('subs1', subs);
               }
             },
             get: function() { return sub.selected ? 'showing' : 'disabled'; }
@@ -2504,10 +2543,14 @@
           subs.push(sub);
         });
 
-        if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
-		console.error('tracks2', tracks);
-        if (subs.length) Lampa.PlayerPanel.setSubs(subs);
-		console.error('subs2', subs);
+        if (tracks.length) {
+          Lampa.PlayerPanel.setTracks(tracks);
+          console.error('tracks2', tracks);
+        }
+        if (subs.length) {
+          Lampa.PlayerPanel.setSubs(subs);
+          console.error('subs2', subs);
+        }
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
       });
