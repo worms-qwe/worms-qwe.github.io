@@ -612,14 +612,14 @@
     }
 
     parts.push('VideoCodec=h264');
-    parts.push('AudioCodec=ac3');
+    parts.push('AudioCodec=acc');
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
-    //parts.push('h264-rangetype=SDR');
-    //parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
+    parts.push('h264-rangetype=SDR');
+    parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
