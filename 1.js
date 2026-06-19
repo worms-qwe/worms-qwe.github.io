@@ -2402,14 +2402,14 @@
 
   // Функция для обработки дорожек и управления переключением (для UI)
   function setupTracksForJellyfin() {
-    var currentMovie = null;
-    var currentUserId = null;
-    var currentAudioIndex = null;
-    var currentSubtitleIndex = null;
+		var currentMovie = null;
+		var currentUserId = null;
+		var currentAudioIndex = null;
+		var currentSubtitleIndex = null;
 
-	function switchAudio(index) {
+		function switchAudio(index) {
 		if (!currentMovie) return;
-		
+
 		// Сохраняем выбранный индекс
 		currentAudioIndex = index;
 		if (_savedStreams[currentMovie.Id]) {
@@ -2418,13 +2418,14 @@
 			_savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
 		}
 
-		// Получаем текущее время воспроизведения (в секундах)
+		// Получаем текущее время (в секундах)
 		var currentTime = 0;
 		try {
 			var video = Lampa.PlayerVideo.video();
 			if (video) currentTime = video.currentTime || 0;
 		} catch (e) {}
 
+		// Формируем параметры для нового URL
 		var opts = {
 			userId: currentUserId,
 			startTicks: Math.floor(currentTime * 10000000), // переводим в тики
@@ -2432,19 +2433,44 @@
 			subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
 			qualityPreset: defaultTranscodePresetKey()
 		};
-		var url = streamUrl(currentMovie.Id, opts);
+		var newUrl = streamUrl(currentMovie.Id, opts);
 
-		// Останавливаем текущее воспроизведение
-		Lampa.Player.play();
+		// --- ПРАВИЛЬНЫЙ СПОСОБ ПЕРЕКЛЮЧЕНИЯ В LAMPA ---
+		// 1. Уничтожаем текущий видео-элемент и освобождаем ресурсы
+		Lampa.PlayerVideo.destroy(true); // true - полное уничтожение
 
-		// Запускаем новое воспроизведение
-		Lampa.Player.play({
-			title: currentMovie.Name || 'Video',
-			url: url,
-			movie: currentMovie,
-			quality: buildStreamQualityMap(currentMovie.Id, opts),
-			timeline: { time: currentTime } // передаём время для продолжения
-		});
+		// 2. Устанавливаем новый URL
+		Lampa.PlayerVideo.url(newUrl, true); // true - принудительная перезагрузка
+
+		// 3. Обновляем информацию о качестве (если есть)
+		var qualityMap = buildStreamQualityMap(currentMovie.Id, opts);
+		if (qualityMap) {
+			// Если есть карта качеств, обновляем её в панели
+			Lampa.PlayerPanel.quality(qualityMap, newUrl);
+		}
+
+		// 4. Восстанавливаем позицию воспроизведения
+		if (currentTime > 0) {
+			// Небольшая задержка, чтобы видео успело загрузиться
+			setTimeout(function() {
+				try {
+					var vid = Lampa.PlayerVideo.video();
+					if (vid && vid.duration) {
+						vid.currentTime = currentTime;
+					}
+				} catch (e) {}
+			}, 500);
+		}
+
+		// 5. Обновляем состояние интерфейса
+		if (work) {
+			work.url = newUrl;
+			if (work.timeline) {
+				work.timeline.continued = false;
+				work.timeline.continued_bloc = false;
+				work.timeline.time = currentTime;
+			}
+		}
 	}
 
 	function switchSubtitle(index) {
@@ -2470,16 +2496,36 @@
 			subtitleStreamIndex: index,
 			qualityPreset: defaultTranscodePresetKey()
 		};
-		var url = streamUrl(currentMovie.Id, opts);
+		var newUrl = streamUrl(currentMovie.Id, opts);
 
-		Lampa.Player.play();
-		Lampa.Player.play({
-			title: currentMovie.Name || 'Video',
-			url: url,
-			movie: currentMovie,
-			quality: buildStreamQualityMap(currentMovie.Id, opts),
-			timeline: { time: currentTime }
-		});
+		// --- ПРАВИЛЬНЫЙ СПОСОБ ПЕРЕКЛЮЧЕНИЯ В LAMPA ---
+		Lampa.PlayerVideo.destroy(true);
+		Lampa.PlayerVideo.url(newUrl, true);
+
+		var qualityMap = buildStreamQualityMap(currentMovie.Id, opts);
+		if (qualityMap) {
+			Lampa.PlayerPanel.quality(qualityMap, newUrl);
+		}
+
+		if (currentTime > 0) {
+			setTimeout(function() {
+				try {
+					var vid = Lampa.PlayerVideo.video();
+					if (vid && vid.duration) {
+						vid.currentTime = currentTime;
+					}
+				} catch (e) {}
+			}, 500);
+		}
+
+		if (work) {
+			work.url = newUrl;
+			if (work.timeline) {
+				work.timeline.continued = false;
+				work.timeline.continued_bloc = false;
+				work.timeline.time = currentTime;
+			}
+		}
 	}
 
     Lampa.Player.listener.follow('start', function(data) {
