@@ -556,6 +556,8 @@
 
     parts.push('VideoCodec=h264');
     parts.push('AudioCodec=aac');
+	parts.push('AudioStreamIndex=4');
+	parts.push('SubtitleStreamIndex=8');
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
     parts.push('SegmentContainer=ts');
