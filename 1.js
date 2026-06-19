@@ -2435,7 +2435,7 @@
 		var url = streamUrl(currentMovie.Id, opts);
 
 		// Останавливаем текущее воспроизведение
-		Lampa.Player.destroy();
+		Lampa.Player.play();
 
 		// Запускаем новое воспроизведение
 		Lampa.Player.play({
@@ -2472,7 +2472,7 @@
 		};
 		var url = streamUrl(currentMovie.Id, opts);
 
-		Lampa.Player.destroy();
+		Lampa.Player.play();
 		Lampa.Player.play({
 			title: currentMovie.Name || 'Video',
 			url: url,
