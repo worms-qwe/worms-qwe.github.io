@@ -46,7 +46,6 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
-  // ----- ДОБАВЛЕНЫ ПЕРЕВОДЫ ДЛЯ НОВЫХ ПУНКТОВ МЕНЮ -----
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -123,7 +122,7 @@
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
       jellyfin_user_auto: { en: 'First user (auto)', ru: 'Первый пользователь (авто)' },
-      // Новые переводы для пунктов меню
+      // Новые переводы
       jellyfin_select_subtitle: { en: 'Select subtitles', ru: 'Выбрать субтитры' },
       jellyfin_select_audio: { en: 'Select audio track', ru: 'Выбрать аудиодорожку' },
       jellyfin_subtitle_off: { en: 'Off', ru: 'Выключить' },
@@ -542,7 +541,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // ---------- ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с поддержкой субтитров и аудио ----------
+  // ------- ИЗМЕНЁННАЯ streamUrl с проверкой индексов -------
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -569,15 +568,13 @@
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
 
-    // ----- Добавлены параметры субтитров и аудио (если переданы) -----
-    if (opts.subtitleIndex !== undefined && opts.subtitleIndex !== null) {
+    // Добавляем параметры, только если индекс задан и является числом
+    if (opts.subtitleIndex !== undefined && opts.subtitleIndex !== null && !isNaN(opts.subtitleIndex)) {
       parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleIndex));
     }
-    if (opts.audioIndex !== undefined && opts.audioIndex !== null) {
+    if (opts.audioIndex !== undefined && opts.audioIndex !== null && !isNaN(opts.audioIndex)) {
       parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioIndex));
     }
-    // Если субтитры явно не выбраны, но включены (auto или off) – можно добавить параметры по умолчанию
-    // Здесь оставляем как есть, чтобы не ломать существующее поведение
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
@@ -587,30 +584,29 @@
     if (!transcodingEnabled()) return null;
     var map = {};
     PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-      // Передаём параметры субтитров и аудио в каждый quality
       var qOpts = Object.assign({}, opts, { qualityPreset: entry.preset });
       map[entry.key] = streamUrl(itemId, qOpts);
     });
     return map;
   }
 
-  // ---------- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С СУБТИТРАМИ И АУДИО ----------
-  // Получение информации о медиа-потоках (субтитры, аудио)
+  // ------- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С СУБТИТРАМИ И АУДИО -------
   function fetchMediaSources(itemId) {
     return resolveUserId().then(function (userId) {
-      return jfHttp('/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId));
+      // Запрашиваем PlaybackInfo с необходимыми параметрами
+      return jfHttp('/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0');
     }).then(function (data) {
       return data;
     });
   }
 
-  // Разбор списка субтитров и аудиодорожек из ответа
   function parseTracks(playbackInfo) {
     var mediaSources = playbackInfo.MediaSources || [];
     if (!mediaSources.length) {
       return { subtitles: [], audioTracks: [] };
     }
-    var mediaSource = mediaSources[0]; // берём первый источник
+    // Берём первый источник (обычно он единственный, либо выбираем с наибольшим битрейтом, но для простоты берём первый)
+    var mediaSource = mediaSources[0];
     var subtitles = (mediaSource.MediaStreams || []).filter(function (stream) {
       return stream.Type === 'Subtitle';
     }).map(function (stream) {
@@ -634,7 +630,6 @@
     return { subtitles: subtitles, audioTracks: audioTracks };
   }
 
-  // Диалог выбора субтитров
   function showSubtitleSelector(row, onDone) {
     var ctl = enabledControllerName();
     fetchMediaSources(row.id).then(function (data) {
@@ -674,12 +669,12 @@
           if (typeof onDone === 'function') onDone();
         },
       });
-    }).catch(function () {
+    }).catch(function (err) {
+      console.error('Jellyfin subtitle error:', err);
       Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
     });
   }
 
-  // Диалог выбора аудиодорожки
   function showAudioSelector(row, onDone) {
     var ctl = enabledControllerName();
     fetchMediaSources(row.id).then(function (data) {
@@ -711,30 +706,31 @@
           if (typeof onDone === 'function') onDone();
         },
       });
-    }).catch(function () {
+    }).catch(function (err) {
+      console.error('Jellyfin audio error:', err);
       Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
     });
   }
 
-  // ---------- ИЗМЕНЁННАЯ playItemFromRow – передаёт сохранённые настройки в URL ----------
+  // ------- ИЗМЕНЁННАЯ playItemFromRow с проверкой индексов -------
   function playItemFromRow(row, userId, includeMovie) {
     var opts = { userId: userId, startTicks: rowStartTicks(row) };
 
-    // Читаем сохранённые настройки субтитров и аудио
     var subMode = storageStr('SubtitleMode', 'auto');
     var subIdx = storageStr('SelectedSubtitle', '');
     var audioIdx = storageStr('SelectedAudio', '');
 
     if (subMode === 'off') {
-      opts.subtitleIndex = 0; // 0 обычно означает "нет субтитров" в Jellyfin (но лучше уточнить)
+      // Не передаём параметр – Jellyfin сам отключит субтитры при отсутствии индекса
+      // или можно передать -1, но оставим как есть.
     } else if (subMode === 'manual' && subIdx) {
-      opts.subtitleIndex = parseInt(subIdx, 10);
-    } else if (subMode === 'auto') {
-      // Не передаём индекс – Jellyfin выберет по умолчанию (или не выберет, если нет)
-      // Можно вообще не добавлять параметр
-    }
+      var idx = parseInt(subIdx, 10);
+      if (!isNaN(idx)) opts.subtitleIndex = idx;
+    } // при 'auto' ничего не передаём
+
     if (audioIdx) {
-      opts.audioIndex = parseInt(audioIdx, 10);
+      var audioIdxNum = parseInt(audioIdx, 10);
+      if (!isNaN(audioIdxNum)) opts.audioIndex = audioIdxNum;
     }
 
     var qualityMap = buildStreamQualityMap(row.id, opts);
@@ -1877,7 +1873,7 @@
     Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
   }
 
-  // ---------- ИЗМЕНЁННАЯ ФУНКЦИЯ showItemMenu – добавлены пункты для субтитров и аудио ----------
+  // ------- ИЗМЕНЁННАЯ showItemMenu с пунктами субтитров и аудио -------
   function showItemMenu(row) {
     var ctl = enabledControllerName();
     var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
@@ -1888,7 +1884,7 @@
     if (row.type === 'Series') {
       items.push({ title: Lampa.Lang.translate('jellyfin_episodes'), action: 'episodes' });
     }
-    // Добавляем пункты выбора субтитров и аудио (только для фильмов и эпизодов, не для сериалов целиком)
+    // Добавляем пункты только для фильмов и эпизодов
     if (row.type !== 'Series') {
       items.push({ title: Lampa.Lang.translate('jellyfin_select_subtitle'), action: 'subtitle' });
       items.push({ title: Lampa.Lang.translate('jellyfin_select_audio'), action: 'audio' });
@@ -1930,11 +1926,8 @@
             .catch(function () {
               Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
             });
-        }
-        // Не забываем вернуть контроль, если не было вызова deferControllerToggle внутри обработчика
-        // Для пунктов subtitle/audio уже вызывается deferControllerToggle внутри их функций
-        // Для остальных делаем здесь
-        if (sel.action !== 'subtitle' && sel.action !== 'audio') {
+          deferControllerToggle(ctl);
+        } else {
           deferControllerToggle(ctl);
         }
       },
@@ -2229,7 +2222,6 @@
     });
   }
 
-  // Оригинальная listenFullCard без изменений (кнопка "Смотреть из Jellyfin")
   function listenFullCard() {
     Lampa.Listener.follow('full', function (e) {
       if (!storageToggle('FullButton', true)) return;
