@@ -2507,7 +2507,7 @@
         if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
 		console.error('tracks2', tracks);
         if (subs.length) Lampa.PlayerPanel.setSubs(subs);
-		console.error('subs2', tracks);
+		console.error('subs2', subs);
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
       });
