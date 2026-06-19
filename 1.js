@@ -2473,7 +2473,7 @@
                 tracks.forEach(function(t) { t.selected = false; });
                 track.selected = true;
                 Lampa.PlayerPanel.setTracks(tracks);
-				console.error('tracks', tracks);
+				console.error('tracks1', tracks);
               }
             },
             get: function() { return track.selected; }
@@ -2496,7 +2496,7 @@
                 subs.forEach(function(s) { s.selected = false; });
                 sub.selected = true;
                 Lampa.PlayerPanel.setSubs(subs);
-				console.error('subs', subs);
+				console.error('subs1', subs);
               }
             },
             get: function() { return sub.selected ? 'showing' : 'disabled'; }
@@ -2505,9 +2505,9 @@
         });
 
         if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
-		console.error('tracks', tracks);
+		console.error('tracks2', tracks);
         if (subs.length) Lampa.PlayerPanel.setSubs(subs);
-		console.error('subs', tracks);
+		console.error('subs2', tracks);
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
       });
