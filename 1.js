@@ -122,11 +122,6 @@
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
       jellyfin_user_auto: { en: 'First user (auto)', ru: 'Первый пользователь (авто)' },
-      // Новые переводы
-      jellyfin_select_subtitle: { en: 'Select subtitles', ru: 'Выбрать субтитры' },
-      jellyfin_select_audio: { en: 'Select audio track', ru: 'Выбрать аудиодорожку' },
-      jellyfin_subtitle_off: { en: 'Off', ru: 'Выключить' },
-      jellyfin_subtitle_auto: { en: 'Auto', ru: 'Авто' },
     });
   }
 
@@ -541,7 +536,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // ------- ИЗМЕНЁННАЯ streamUrl с проверкой индексов -------
+  // streamUrl теперь без параметров субтитров и аудио
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -568,14 +563,6 @@
     parts.push('MinSegments=1');
     parts.push('BreakOnNonKeyFrames=false');
 
-    // Добавляем параметры, только если индекс задан и является числом
-    if (opts.subtitleIndex !== undefined && opts.subtitleIndex !== null && !isNaN(opts.subtitleIndex)) {
-      parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleIndex));
-    }
-    if (opts.audioIndex !== undefined && opts.audioIndex !== null && !isNaN(opts.audioIndex)) {
-      parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioIndex));
-    }
-
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
@@ -590,149 +577,68 @@
     return map;
   }
 
-  // ------- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С СУБТИТРАМИ И АУДИО -------
+  // Функция для получения информации о медиа-потоках (субтитры, аудио)
   function fetchMediaSources(itemId) {
     return resolveUserId().then(function (userId) {
-      // Запрашиваем PlaybackInfo с необходимыми параметрами
       return jfHttp('/Videos/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0');
     }).then(function (data) {
       return data;
     });
   }
 
+  // Парсинг дорожек из ответа PlaybackInfo
   function parseTracks(playbackInfo) {
     var mediaSources = playbackInfo.MediaSources || [];
     if (!mediaSources.length) {
       return { subtitles: [], audioTracks: [] };
     }
-    // Берём первый источник (обычно он единственный, либо выбираем с наибольшим битрейтом, но для простоты берём первый)
     var mediaSource = mediaSources[0];
     var subtitles = (mediaSource.MediaStreams || []).filter(function (stream) {
       return stream.Type === 'Subtitle';
     }).map(function (stream) {
       return {
+        id: stream.Index,
         title: stream.DisplayTitle || stream.Language || 'Unknown',
-        index: stream.Index,
-        isDefault: stream.IsDefault || false,
-        isForced: stream.IsForced || false,
+        language: stream.Language || '',
+        forced: stream.IsForced || false,
+        default: stream.IsDefault || false,
       };
     });
     var audioTracks = (mediaSource.MediaStreams || []).filter(function (stream) {
       return stream.Type === 'Audio';
     }).map(function (stream) {
       return {
+        id: stream.Index,
         title: stream.DisplayTitle || stream.Language || 'Unknown',
-        index: stream.Index,
-        isDefault: stream.IsDefault || false,
+        language: stream.Language || '',
+        default: stream.IsDefault || false,
         channels: stream.ChannelLayout || '',
       };
     });
     return { subtitles: subtitles, audioTracks: audioTracks };
   }
 
-  function showSubtitleSelector(row, onDone) {
-    var ctl = enabledControllerName();
-    fetchMediaSources(row.id).then(function (data) {
+  // Отправка дорожек в плеер через событие
+  function sendTracksToPlayer(itemId) {
+    fetchMediaSources(itemId).then(function (data) {
       var tracks = parseTracks(data);
-      var items = tracks.subtitles.map(function (sub) {
-        return {
-          title: sub.title + (sub.isDefault ? ' (Default)' : ''),
-          index: sub.index,
-        };
-      });
-      // Добавляем пункты "Выключить" и "Авто"
-      items.unshift({ title: Lampa.Lang.translate('jellyfin_subtitle_off'), index: null });
-      items.unshift({ title: Lampa.Lang.translate('jellyfin_subtitle_auto'), index: 'auto' });
-
-      Lampa.Select.show({
-        title: Lampa.Lang.translate('jellyfin_select_subtitle'),
-        items: items,
-        onBack: function () {
-          deferControllerToggle(ctl);
-          if (typeof onDone === 'function') onDone();
-        },
-        onSelect: function (item) {
-          if (!item) return;
-          var idx = item.index;
-          if (idx === 'auto') {
-            Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'auto');
-            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', '');
-          } else if (idx === null) {
-            Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'off');
-            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', '');
-          } else {
-            Lampa.Storage.set(STORAGE_PREFIX + 'SubtitleMode', 'manual');
-            Lampa.Storage.set(STORAGE_PREFIX + 'SelectedSubtitle', String(idx));
-          }
-          Lampa.Bell.push({ text: 'Subtitle selection saved' });
-          deferControllerToggle(ctl);
-          if (typeof onDone === 'function') onDone();
-        },
-      });
+      var tracksData = {
+        audio: tracks.audioTracks.map(function (t) {
+          return { id: t.id, title: t.title, language: t.language };
+        }),
+        subtitle: tracks.subtitles.map(function (t) {
+          return { id: t.id, title: t.title, language: t.language, forced: t.forced };
+        })
+      };
+      // Отправляем событие в плеер
+      Lampa.Listener.send('player_tracks', tracksData);
     }).catch(function (err) {
-      console.error('Jellyfin subtitle error:', err);
-      Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      console.warn('Jellyfin: failed to fetch tracks for player', err);
     });
   }
 
-  function showAudioSelector(row, onDone) {
-    var ctl = enabledControllerName();
-    fetchMediaSources(row.id).then(function (data) {
-      var tracks = parseTracks(data);
-      if (!tracks.audioTracks.length) {
-        Lampa.Bell.push({ text: 'No audio tracks available' });
-        deferControllerToggle(ctl);
-        if (typeof onDone === 'function') onDone();
-        return;
-      }
-      var items = tracks.audioTracks.map(function (audio) {
-        return {
-          title: audio.title + (audio.isDefault ? ' (Default)' : ''),
-          index: audio.index,
-        };
-      });
-      Lampa.Select.show({
-        title: Lampa.Lang.translate('jellyfin_select_audio'),
-        items: items,
-        onBack: function () {
-          deferControllerToggle(ctl);
-          if (typeof onDone === 'function') onDone();
-        },
-        onSelect: function (item) {
-          if (!item) return;
-          Lampa.Storage.set(STORAGE_PREFIX + 'SelectedAudio', String(item.index));
-          Lampa.Bell.push({ text: 'Audio track saved' });
-          deferControllerToggle(ctl);
-          if (typeof onDone === 'function') onDone();
-        },
-      });
-    }).catch(function (err) {
-      console.error('Jellyfin audio error:', err);
-      Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-    });
-  }
-
-  // ------- ИЗМЕНЁННАЯ playItemFromRow с проверкой индексов -------
   function playItemFromRow(row, userId, includeMovie) {
     var opts = { userId: userId, startTicks: rowStartTicks(row) };
-
-    var subMode = storageStr('SubtitleMode', 'auto');
-    var subIdx = storageStr('SelectedSubtitle', '');
-    var audioIdx = storageStr('SelectedAudio', '');
-
-    if (subMode === 'off') {
-      // Не передаём параметр – Jellyfin сам отключит субтитры при отсутствии индекса
-      // или можно передать -1, но оставим как есть.
-    } else if (subMode === 'manual' && subIdx) {
-      var idx = parseInt(subIdx, 10);
-      if (!isNaN(idx)) opts.subtitleIndex = idx;
-    } // при 'auto' ничего не передаём
-
-    if (audioIdx) {
-      var audioIdxNum = parseInt(audioIdx, 10);
-      if (!isNaN(audioIdxNum)) opts.audioIndex = audioIdxNum;
-    }
-
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
@@ -1743,8 +1649,12 @@
     resolveUserId()
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
-        Lampa.Player.play(playItemFromRow(row, userId, true));
+        var firstItem = playItemFromRow(row, userId, true);
+        Lampa.Player.play(firstItem);
         Lampa.Player.playlist(playlist);
+
+        // После запуска плеера получаем список дорожек и отправляем в плеер
+        sendTracksToPlayer(row.id);
       })
       .catch(function () {
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
@@ -1873,7 +1783,7 @@
     Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
   }
 
-  // ------- ИЗМЕНЁННАЯ showItemMenu с пунктами субтитров и аудио -------
+  // Контекстное меню — убраны пункты выбора субтитров и аудио
   function showItemMenu(row) {
     var ctl = enabledControllerName();
     var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
@@ -1883,11 +1793,6 @@
     }
     if (row.type === 'Series') {
       items.push({ title: Lampa.Lang.translate('jellyfin_episodes'), action: 'episodes' });
-    }
-    // Добавляем пункты только для фильмов и эпизодов
-    if (row.type !== 'Series') {
-      items.push({ title: Lampa.Lang.translate('jellyfin_select_subtitle'), action: 'subtitle' });
-      items.push({ title: Lampa.Lang.translate('jellyfin_select_audio'), action: 'audio' });
     }
     items.push({
       title: Lampa.Lang.translate(row.watched ? 'jellyfin_mark_unwatched' : 'jellyfin_mark_watched'),
@@ -1909,14 +1814,6 @@
             if (!eps.length) Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
             else showEpisodePicker(eps);
           });
-        } else if (sel.action === 'subtitle') {
-          showSubtitleSelector(row, function () {
-            deferControllerToggle(ctl);
-          });
-        } else if (sel.action === 'audio') {
-          showAudioSelector(row, function () {
-            deferControllerToggle(ctl);
-          });
         } else if (sel.action === 'watched' || sel.action === 'unwatched') {
           var markWatched = sel.action === 'watched';
           setItemWatched(row, markWatched)
@@ -1926,10 +1823,8 @@
             .catch(function () {
               Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
             });
-          deferControllerToggle(ctl);
-        } else {
-          deferControllerToggle(ctl);
         }
+        deferControllerToggle(ctl);
       },
     });
   }
