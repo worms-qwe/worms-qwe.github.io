@@ -46,6 +46,10 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
+  // Глобальные значения для дефолтных индексов аудио и субтитров
+  var _defaultAudioIndex = undefined;
+  var _defaultSubtitleIndex = undefined;
+
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -549,7 +553,14 @@
     if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
 
-    // Добавляем параметры индексов аудио и субтитров, если переданы
+    // Подставляем дефолтные индексы, если они не переданы явно
+    if (opts.audioStreamIndex === undefined && _defaultAudioIndex !== undefined) {
+      opts.audioStreamIndex = _defaultAudioIndex;
+    }
+    if (opts.subtitleStreamIndex === undefined && _defaultSubtitleIndex !== undefined) {
+      opts.subtitleStreamIndex = _defaultSubtitleIndex;
+    }
+
     if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
       parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioStreamIndex));
     }
@@ -2339,19 +2350,22 @@
     });
   }
 
-  // Новая функция для обработки дорожек
+  // Функция для обработки дорожек и управления переключением
   function setupTracksForJellyfin() {
-    var currentMediaInfo = null; // хранит данные для переключения
     var currentMovie = null;
     var currentUserId = null;
+    var currentAudioIndex = null;
+    var currentSubtitleIndex = null;
 
     function switchAudio(index) {
-      if (!currentMediaInfo || !currentMovie) return;
+      if (!currentMovie) return;
+      currentAudioIndex = index;
+      // Перезапускаем с новым индексом
       var opts = {
         userId: currentUserId,
-        startTicks: 0, // Можно сохранить текущую позицию, но для простоты начнем сначала
+        startTicks: 0, // можно сохранять позицию, но для простоты с начала
         audioStreamIndex: index,
-        subtitleStreamIndex: currentMediaInfo.defaultSubtitleIndex || undefined,
+        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : _defaultSubtitleIndex,
         qualityPreset: defaultTranscodePresetKey()
       };
       var url = streamUrl(currentMovie.Id, opts);
@@ -2364,11 +2378,12 @@
     }
 
     function switchSubtitle(index) {
-      if (!currentMediaInfo || !currentMovie) return;
+      if (!currentMovie) return;
+      currentSubtitleIndex = index;
       var opts = {
         userId: currentUserId,
         startTicks: 0,
-        audioStreamIndex: currentMediaInfo.defaultAudioIndex || undefined,
+        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : _defaultAudioIndex,
         subtitleStreamIndex: index,
         qualityPreset: defaultTranscodePresetKey()
       };
@@ -2399,16 +2414,11 @@
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
 
-        // Запоминаем дефолтные индексы
-        var defaultAudioIndex = source.DefaultAudioStreamIndex;
-        var defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
-
-        currentMediaInfo = {
-          audioStreams: audioStreams,
-          subStreams: subStreams,
-          defaultAudioIndex: defaultAudioIndex,
-          defaultSubtitleIndex: defaultSubtitleIndex
-        };
+        // Устанавливаем глобальные дефолтные индексы
+        _defaultAudioIndex = source.DefaultAudioStreamIndex;
+        _defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
+        currentAudioIndex = _defaultAudioIndex;
+        currentSubtitleIndex = _defaultSubtitleIndex;
 
         // Создаем объекты дорожек для Lampa.PlayerPanel
         var tracks = [];
@@ -2417,17 +2427,14 @@
             index: stream.Index,
             language: stream.Language || '',
             label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
-            selected: (stream.Index === defaultAudioIndex)
+            selected: (stream.Index === _defaultAudioIndex)
           };
-          // Сеттер для выбора аудио
           Object.defineProperty(track, "enabled", {
             set: function(v) {
               if (v) {
                 switchAudio(stream.Index);
-                // Обновляем состояние выбранности
                 tracks.forEach(function(t) { t.selected = false; });
                 track.selected = true;
-                // Обновляем интерфейс
                 Lampa.PlayerPanel.setTracks(tracks);
               }
             },
@@ -2442,7 +2449,7 @@
             index: stream.Index,
             language: stream.Language || '',
             label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
-            selected: (stream.Index === defaultSubtitleIndex)
+            selected: (stream.Index === _defaultSubtitleIndex)
           };
           Object.defineProperty(sub, "mode", {
             set: function(v) {
@@ -2479,6 +2486,7 @@
     injectHeadIcon();
     listenFullCard();
 
+    // Инициализация обработчика дорожек
     setupTracksForJellyfin();
 
     prefetchAutoUser();
