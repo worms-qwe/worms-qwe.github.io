@@ -540,6 +540,24 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
+  // Функция для получения PlaybackInfo и установки дефолтных индексов
+  function fetchPlaybackInfoAndSetDefaults(itemId, userId) {
+    return jfHttp('/Items/' + encodeURIComponent(itemId) +
+              '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
+              '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
+      .then(function(info) {
+        if (info && info.MediaSources && info.MediaSources.length) {
+          var source = info.MediaSources[0];
+          _defaultAudioIndex = source.DefaultAudioStreamIndex;
+          _defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
+        }
+        return info;
+      })
+      .catch(function(e) {
+        console.error('Failed to fetch PlaybackInfo for defaults:', e);
+      });
+  }
+
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -1604,9 +1622,16 @@
     });
   }
 
+  // Переопределяем playRow для получения дефолтных индексов перед воспроизведением
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
+      .then(function (userId) {
+        // Получаем PlaybackInfo для первого элемента, чтобы установить дефолтные индексы
+        return fetchPlaybackInfoAndSetDefaults(row.id, userId).then(function() {
+          return userId;
+        });
+      })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
         Lampa.Player.play(playItemFromRow(row, userId, true));
@@ -2350,7 +2375,7 @@
     });
   }
 
-  // Функция для обработки дорожек и управления переключением
+  // Функция для обработки дорожек и управления переключением (для UI)
   function setupTracksForJellyfin() {
     var currentMovie = null;
     var currentUserId = null;
@@ -2360,10 +2385,9 @@
     function switchAudio(index) {
       if (!currentMovie) return;
       currentAudioIndex = index;
-      // Перезапускаем с новым индексом
       var opts = {
         userId: currentUserId,
-        startTicks: 0, // можно сохранять позицию, но для простоты с начала
+        startTicks: 0,
         audioStreamIndex: index,
         subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : _defaultSubtitleIndex,
         qualityPreset: defaultTranscodePresetKey()
@@ -2404,9 +2428,7 @@
       currentMovie = data.movie;
       resolveUserId().then(function(userId) {
         currentUserId = userId;
-        return jfHttp('/Items/' + encodeURIComponent(itemId) +
-                  '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
-                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true');
+        return fetchPlaybackInfoAndSetDefaults(itemId, userId);
       }).then(function(info) {
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
@@ -2414,13 +2436,11 @@
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
 
-        // Устанавливаем глобальные дефолтные индексы
         _defaultAudioIndex = source.DefaultAudioStreamIndex;
         _defaultSubtitleIndex = source.DefaultSubtitleStreamIndex;
         currentAudioIndex = _defaultAudioIndex;
         currentSubtitleIndex = _defaultSubtitleIndex;
 
-        // Создаем объекты дорожек для Lampa.PlayerPanel
         var tracks = [];
         audioStreams.forEach(function(stream, i) {
           var track = {
@@ -2486,7 +2506,6 @@
     injectHeadIcon();
     listenFullCard();
 
-    // Инициализация обработчика дорожек
     setupTracksForJellyfin();
 
     prefetchAutoUser();
