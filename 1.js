@@ -2400,80 +2400,80 @@
     });
   }
 
-	function switchAudio(index) {
-		if (!currentMovie) return;
-		
-		// Сохраняем выбранный индекс
-		currentAudioIndex = index;
-		if (_savedStreams[currentMovie.Id]) {
-			_savedStreams[currentMovie.Id].audio = index;
-		} else {
-			_savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
-		}
-
-		// Получаем текущее время воспроизведения (в секундах)
-		var currentTime = 0;
-		try {
-			var video = Lampa.PlayerVideo.video();
-			if (video) currentTime = video.currentTime || 0;
-		} catch (e) {}
-
-		var opts = {
-			userId: currentUserId,
-			startTicks: Math.floor(currentTime * 10000000), // переводим в тики
-			audioStreamIndex: index,
-			subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-			qualityPreset: defaultTranscodePresetKey()
-		};
-		var url = streamUrl(currentMovie.Id, opts);
-
-		// Останавливаем текущее воспроизведение
-		Lampa.Player.destroy(true);
-
-		// Запускаем новое воспроизведение
-		Lampa.Player.play({
-			title: currentMovie.Name || 'Video',
-			url: url,
-			movie: currentMovie,
-			quality: buildStreamQualityMap(currentMovie.Id, opts),
-			timeline: { time: currentTime } // передаём время для продолжения
-		});
-	}
-	
-	function switchSubtitle(index) {
-		if (!currentMovie) return;
-
-		currentSubtitleIndex = index;
-		if (_savedStreams[currentMovie.Id]) {
-			_savedStreams[currentMovie.Id].subtitle = index;
-		} else {
-			_savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
-		}
-
-		var currentTime = 0;
-		try {
-			var video = Lampa.PlayerVideo.video();
-			if (video) currentTime = video.currentTime || 0;
-		} catch (e) {}
-
-		var opts = {
-			userId: currentUserId,
-			startTicks: Math.floor(currentTime * 10000000),
-			audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
-			subtitleStreamIndex: index,
-			qualityPreset: defaultTranscodePresetKey()
-		};
-		var url = streamUrl(currentMovie.Id, opts);
-
-		Lampa.Player.destroy(true);
-		Lampa.Player.play({
-			title: currentMovie.Name || 'Video',
-			url: url,
-			movie: currentMovie,
-			quality: buildStreamQualityMap(currentMovie.Id, opts),
-			timeline: { time: currentTime }
-		});
-	}
+  function switchAudio(index) {
+  	if (!currentMovie) return;
+  	
+  	// Сохраняем выбранный индекс
+  	currentAudioIndex = index;
+  	if (_savedStreams[currentMovie.Id]) {
+  		_savedStreams[currentMovie.Id].audio = index;
+  	} else {
+  		_savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
+  	}
+  
+  	// Получаем текущее время воспроизведения (в секундах)
+  	var currentTime = 0;
+  	try {
+  		var video = Lampa.PlayerVideo.video();
+  		if (video) currentTime = video.currentTime || 0;
+  	} catch (e) {}
+  
+  	var opts = {
+  		userId: currentUserId,
+  		startTicks: Math.floor(currentTime * 10000000), // переводим в тики
+  		audioStreamIndex: index,
+  		subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+  		qualityPreset: defaultTranscodePresetKey()
+  	};
+  	var url = streamUrl(currentMovie.Id, opts);
+  
+  	// Останавливаем текущее воспроизведение
+  	Lampa.Player.destroy(true);
+  
+  	// Запускаем новое воспроизведение
+  	Lampa.Player.play({
+  		title: currentMovie.Name || 'Video',
+  		url: url,
+  		movie: currentMovie,
+  		quality: buildStreamQualityMap(currentMovie.Id, opts),
+  		timeline: { time: currentTime } // передаём время для продолжения
+  	});
+  }
+  
+  function switchSubtitle(index) {
+  	if (!currentMovie) return;
+  
+  	currentSubtitleIndex = index;
+  	if (_savedStreams[currentMovie.Id]) {
+  		_savedStreams[currentMovie.Id].subtitle = index;
+  	} else {
+  		_savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
+  	}
+  
+  	var currentTime = 0;
+  	try {
+  		var video = Lampa.PlayerVideo.video();
+  		if (video) currentTime = video.currentTime || 0;
+  	} catch (e) {}
+  
+  	var opts = {
+  		userId: currentUserId,
+  		startTicks: Math.floor(currentTime * 10000000),
+  		audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
+  		subtitleStreamIndex: index,
+  		qualityPreset: defaultTranscodePresetKey()
+  	};
+  	var url = streamUrl(currentMovie.Id, opts);
+  
+  	Lampa.Player.destroy(true);
+  	Lampa.Player.play({
+  		title: currentMovie.Name || 'Video',
+  		url: url,
+  		movie: currentMovie,
+  		quality: buildStreamQualityMap(currentMovie.Id, opts),
+  		timeline: { time: currentTime }
+  	});
+  }
 
     Lampa.Player.listener.follow('start', function(data) {
       if (!data || !data.movie || !data.movie.Id) return;
