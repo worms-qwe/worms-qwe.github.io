@@ -557,9 +557,10 @@
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-    return jfHttp('/Items/' + encodeURIComponent(itemId) +
-              '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
-              '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
+    // return jfHttp('/Items/' + encodeURIComponent(itemId) +
+              // '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
+              // '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
+	return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo')
       .then(function(info) {
         if (info && info.MediaSources && info.MediaSources.length) {
           var source = info.MediaSources[0];
