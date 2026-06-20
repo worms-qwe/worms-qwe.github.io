@@ -669,9 +669,9 @@
     //parts.push('TranscodeReasons=ContainerBitrateExceedsLimit');
     //parts.push('TranscodeReasons=VideoLevelNotSupported');
     ///////////////////////////////////////
-    parts.push('RequireAvc=true');
+    //parts.push('RequireAvc=true');
     parts.push('BreakOnNonKeyFrames=False');
-    parts.push('EnableAudioVbrEncoding=false');
+    parts.push('EnableAudioVbrEncoding=true');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     console.error('url2', apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&'));
