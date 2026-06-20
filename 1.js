@@ -557,6 +557,7 @@
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
+	console.error('fetchPlaybackInfoAndSaveStreams', 'called');
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
               '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
               '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
@@ -567,6 +568,7 @@
 
           var audioIndex, subtitleIndex;
           var subtitleUrls = {};
+		  console.error('subtitleUrls', 'subtitleUrls');
           var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
           if (defaultAudio) {
             audioIndex = defaultAudio.Index;
