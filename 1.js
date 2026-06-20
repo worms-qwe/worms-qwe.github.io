@@ -731,6 +731,7 @@
       item.subtitles = subs;
       //}
     }
+	console.error('item.subtitles', item.subtitles);
     return item;
   }
 
@@ -1740,8 +1741,6 @@
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
-		console.error('play', playItemFromRow(row, userId, true));
-		console.error('_savedStreams', _savedStreams);
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
@@ -2540,7 +2539,6 @@
         playSessionId: currentPlaySessionId || undefined
       };
       var url = streamUrl(currentMovie.Id, opts);
-	  console.error('_savedStreams', _savedStreams);
       var subtitles = getSubtitlesArray(currentMovie.Id, index);
       var playObj = {
         title: currentMovie.Name || 'Video',
@@ -2548,11 +2546,8 @@
         movie: currentMovie,
         quality: buildStreamQualityMap(currentMovie.Id, opts)
       };
-	  console.error('playObj_1', playObj);
-	  console.error('subtitles.length', subtitles.length);
       if (subtitles.length) {
         playObj.subtitles = subtitles;
-		console.error('subtitles', subtitles);
       }
       Lampa.Player.close();
 	  console.error('playObj', playObj);
@@ -2640,7 +2635,6 @@
                 subs.forEach(function(s) { s.selected = false; });
                 sub.selected = true;
                 Lampa.PlayerPanel.setSubs(subs);
-				console.error('subs1', subs);
               }
             },
             get: function() { return sub.selected ? 'showing' : 'disabled'; }
@@ -2653,7 +2647,6 @@
         }
         if (subs.length) {
           Lampa.PlayerPanel.setSubs(subs);
-		  console.error('subs2', subs);
         }
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
