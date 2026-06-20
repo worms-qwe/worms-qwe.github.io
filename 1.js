@@ -609,7 +609,11 @@
   
         streams.forEach(function(stream) {
           if (stream.Type === 'Subtitle') {
-            console.error('', subtitleUrls[stream.Index]);
+            console.error('Index', subtitleUrls[stream.Index]);
+            console.error('DeliveryUrl', subtitleUrls[stream.DeliveryUrl]);
+            console.error('Language', subtitleUrls[stream.Language]);
+            console.error('Title', subtitleUrls[stream.Title]);
+            console.error('DisplayTitle', subtitleUrls[stream.DisplayTitle]);
             if (stream.DeliveryUrl) {
               subtitleUrls[stream.Index] = apiBase() + stream.DeliveryUrl;
             }
