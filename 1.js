@@ -529,7 +529,7 @@
     parts.push('VideoBitrate=' + quality.videoBitrate);
     parts.push('AudioBitrate=' + quality.audioBitrate);
     parts.push('MaxWidth=' + quality.maxWidth);
-    parts.push('h264-profile=high');
+    parts.push('h264-profile=high,main,baseline,constrainedbaseline');
     parts.push('h264-level=' + quality.h264Level);
   	parts.push('h264-videobitdepth=8');
   	parts.push('h264-deinterlace=true');
