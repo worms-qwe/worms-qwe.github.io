@@ -550,9 +550,15 @@
   function getSubtitlesArray(itemId, subtitleIndex) {
     var saved = _savedStreams[itemId];
     if (!saved) return [];
+    // Если есть сохранённый URL для этого индекса, используем его
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
-    if (!url) return [];
-    return [{ url: url, label: 'Subtitle' }];
+    if (url) return [{ url: url, label: 'Subtitle' }];
+    // Если нет, пробуем сформировать вручную, используя сохранённый mediaSourceId
+    var msId = saved.mediaSourceId || mediaSourceId(itemId);
+    var base = apiBase();
+    var key = apiKey();
+    var manualUrl = base + '/Videos/' + encodeURIComponent(itemId) + '/' + encodeURIComponent(msId) + '/Subtitles/' + subtitleIndex + '/stream.vtt?api_key=' + encodeURIComponent(key);
+    return [{ url: manualUrl, label: 'Subtitle' }];
   }
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
@@ -583,12 +589,16 @@
             subtitleIndex = firstSub ? firstSub.Index : undefined;
           }
 
-          // Собираем все субтитры и их DeliveryUrl
+          // Сохраняем mediaSourceId и playSessionId
+          var mediaSourceId = source.Id;
+          var playSessionId = info.PlaySessionId || null;
+
+          // Собираем все субтитры и их URL
           streams.forEach(function(stream) {
-            if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-              var fullUrl = apiBase() + stream.DeliveryUrl;
-			  console.error('fullUrl', fullUrl);
-              subtitleUrls[stream.Index] = fullUrl;
+            if (stream.Type === 'Subtitle') {
+              if (stream.DeliveryUrl) {
+                subtitleUrls[stream.Index] = apiBase() + stream.DeliveryUrl;
+              }
             }
           });
 
@@ -596,7 +606,9 @@
             _savedStreams[itemId] = {
               audio: audioIndex,
               subtitle: subtitleIndex,
-              subtitleUrls: subtitleUrls
+              subtitleUrls: subtitleUrls,
+              mediaSourceId: mediaSourceId,
+              playSessionId: playSessionId
             };
           }
         }
@@ -709,7 +721,13 @@
   }
 
   function playItemFromRow(row, userId, includeMovie) {
-    var opts = { userId: userId, startTicks: rowStartTicks(row) };
+    var saved = _savedStreams[row.id];
+    var opts = {
+      userId: userId,
+      startTicks: rowStartTicks(row),
+      mediaSourceId: saved ? saved.mediaSourceId : undefined,
+      playSessionId: saved ? saved.playSessionId : undefined
+    };
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
@@ -723,15 +741,16 @@
     if (qualityMap) item.quality = qualityMap;
     if (includeMovie) item.movie = row.raw;
 
-    // Добавляем субтитры, если есть
-    var saved = _savedStreams[row.id];
-    if (saved && saved.subtitle !== undefined && saved.subtitleUrls) {
-        var subIndex = saved.subtitle;
-        var url = saved.subtitleUrls[subIndex];
-        if (url) {
-            item.subtitles = [{ url: url, label: 'Subtitle' }];
-        }
+    // Добавляем субтитры
+    if (saved && saved.subtitle !== undefined) {
+      var subs = getSubtitlesArray(row.id, saved.subtitle);
+      if (subs.length) {
+        item.subtitles = subs;
+      }
     }
+
+    return item;
+  }
 
     return item;
   }
@@ -1733,17 +1752,13 @@
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
-        if (!_savedStreams[row.id]) {
-          return fetchPlaybackInfoAndSaveStreams(row.id, userId).then(function() {
-            return userId;
-          });
-        }
-        return userId;
+        // Сначала получаем PlaybackInfo и сохраняем данные
+        return fetchPlaybackInfoAndSaveStreams(row.id, userId).then(function() {
+          return userId;
+        });
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
-		console.error('play', playItemFromRow(row, userId, true));
-		setupTracksForJellyfin();
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
