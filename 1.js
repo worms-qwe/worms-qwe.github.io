@@ -731,6 +731,11 @@
       item.subtitles = subs;
       //}
     }
+	console.error('item.title', item.title);
+	console.error('item.url', item.url);
+	console.error('item.timeline', item.timeline);
+	console.error('item.quality', item.quality);
+	console.error('item.movie', item.movie);
 	console.error('item.subtitles', item.subtitles);
     return item;
   }
