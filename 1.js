@@ -841,8 +841,8 @@
             : IMG_PLACEHOLDER,
       type: item.Type || '',
       tmdb: tmdb,
-      //quality: detectQuality(item.Name),ТУТ
-      quality: '720p'
+      //quality: detectQuality(item.Name), ТУТ
+      quality: '720p',
       rating:
         item.CommunityRating && Number(item.CommunityRating) > 0
           ? parseFloat(item.CommunityRating).toFixed(1)
