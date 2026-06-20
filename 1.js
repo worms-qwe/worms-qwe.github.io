@@ -557,6 +557,8 @@
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
+	http://192.168.0.100:8096/Users/752326c5d07f4bb1ad827ca9e9449499/Items/1de1cb59e635ee79af5243928162f0b1
+	jfHttp('/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(itemId))
 	return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo')
       .then(function(info) {
         if (info && info.MediaSources && info.MediaSources.length) {
