@@ -668,7 +668,7 @@
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('h264-rangetype=SDR');
-    parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
+    parts.push('alwaysBurnInSubtitleWhenTranscoding=false');
     parts.push('SubtitleCodec=subrip');
     parts.push('SubtitleFormat=subrip');
     parts.push('SubtitleMethod=External');
