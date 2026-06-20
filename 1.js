@@ -2641,6 +2641,7 @@
                 subs.forEach(function(s) { s.selected = false; });
                 sub.selected = true;
                 Lampa.PlayerPanel.setSubs(subs);
+				console.error('subs1', subs);
               }
             },
             get: function() { return sub.selected ? 'showing' : 'disabled'; }
@@ -2653,6 +2654,7 @@
         }
         if (subs.length) {
           Lampa.PlayerPanel.setSubs(subs);
+		  console.error('subs2', subs);
         }
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
