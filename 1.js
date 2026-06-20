@@ -724,6 +724,7 @@
 
     // Добавляем субтитры, если есть
     var saved = _savedStreams[row.id];
+	console.error('item1_', item);
 	console.error('saved_', saved);
 	console.error('_savedStreams[row.id]_', _savedStreams);
 	console.error('saved.subtitle_', saved.subtitle);
@@ -731,9 +732,10 @@
     if (saved && saved.subtitle !== undefined && saved.subtitleUrls) {
         var subIndex = saved.subtitle;
         var url = saved.subtitleUrls[subIndex];
-        if (url) {
-            item.subtitles = [{ url: url, label: 'Subtitle' }];
-        }
+        //if (url) {
+    	item.subtitles = [{ url: url, label: 'Subtitle' }];
+		console.error('item2_', item);
+        //}
     }
 
     return item;
