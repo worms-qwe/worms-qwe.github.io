@@ -586,6 +586,9 @@
 
           // Собираем все субтитры и их DeliveryUrl
           streams.forEach(function(stream) {
+			console.error('111stream.DeliveryUrl', stream.DeliveryUrl);
+			console.error('111stream.Type', stream.Type);
+			console.error('111apiBase()', apiBase());
             if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
               var fullUrl = apiBase() + stream.DeliveryUrl;
               subtitleUrls[stream.Index] = fullUrl;
