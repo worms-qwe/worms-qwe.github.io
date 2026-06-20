@@ -637,7 +637,6 @@
   	//parts.push('SubtitleCodec=smi');
   	//parts.push('SubtitleCodec=subrip');
   	//parts.push('SubtitleCodec=sub');
-  	//parts.push('SubtitleCodec=sub');
   	//parts.push('SubtitleCodec=dvdsub');
   	//parts.push('SubtitleCodec=pgs');
   	//parts.push('SubtitleCodec=pgssub');
@@ -652,9 +651,9 @@
     //parts.push('SubtitleFormat=pgs');
     //parts.push('SubtitleFormat=pgssub');
     ///////////////////////////////////////
-  	//parts.push('SubtitleMethod=Embed');
+  	parts.push('SubtitleMethod=Embed');
     //parts.push('SubtitleMethod=External');
-    parts.push('SubtitleMethod=Encode');
+    //parts.push('SubtitleMethod=Encode');
     ///////////////////////////////////////
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
