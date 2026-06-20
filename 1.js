@@ -557,9 +557,6 @@
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-    // return jfHttp('/Items/' + encodeURIComponent(itemId) +
-              // '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
-              // '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
 	return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo')
       .then(function(info) {
         if (info && info.MediaSources && info.MediaSources.length) {
@@ -579,9 +576,9 @@
           var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
           if (defaultSub) {
             subtitleIndex = defaultSub.Index;
-			console.error('itemId', itemId);
-			console.error('encodeURIComponent(itemId)', encodeURIComponent(itemId));
-			console.error('1defaultSub.Index', defaultSub.Level);
+			subtitleUrls = defaultSub.DeliveryUrl;
+			console.error('1defaultSub', defaultSub);
+			console.error('1defaultSub.DeliveryUrl', defaultSub.DeliveryUrl);
           } else {
             var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
             subtitleIndex = firstSub ? firstSub.Index : undefined;
