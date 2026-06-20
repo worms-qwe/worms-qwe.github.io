@@ -547,6 +547,14 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
+  function getSubtitlesArray(itemId, subtitleIndex) {
+    var saved = _savedStreams[itemId];
+    if (!saved) return [];
+    var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
+    if (!url) return [];
+    return [{ url: url, label: 'Subtitle' }];
+  }
+
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
@@ -558,6 +566,7 @@
           var streams = source.MediaStreams || [];
 
           var audioIndex, subtitleIndex;
+          var subtitleUrls = {};
           var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
           if (defaultAudio) {
             audioIndex = defaultAudio.Index;
@@ -574,8 +583,20 @@
             subtitleIndex = firstSub ? firstSub.Index : undefined;
           }
 
-          if (audioIndex !== undefined && subtitleIndex !== undefined) {
-            _savedStreams[itemId] = { audio: audioIndex, subtitle: subtitleIndex };
+          // Собираем все субтитры и их DeliveryUrl
+          streams.forEach(function(stream) {
+            if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+              var fullUrl = apiBase() + stream.DeliveryUrl;
+              subtitleUrls[stream.Index] = fullUrl;
+            }
+          });
+
+          if (audioIndex !== undefined) {
+            _savedStreams[itemId] = {
+              audio: audioIndex,
+              subtitle: subtitleIndex,
+              subtitleUrls: subtitleUrls
+            };
           }
         }
         return info;
@@ -702,6 +723,17 @@
     }
     if (qualityMap) item.quality = qualityMap;
     if (includeMovie) item.movie = row.raw;
+
+    // Добавляем субтитры, если есть
+    var saved = _savedStreams[row.id];
+    if (saved && saved.subtitle !== undefined && saved.subtitleUrls) {
+        var subIndex = saved.subtitle;
+        var url = saved.subtitleUrls[subIndex];
+        if (url) {
+            item.subtitles = [{ url: url, label: 'Subtitle' }];
+        }
+    }
+
     return item;
   }
 
@@ -2452,7 +2484,7 @@
     });
   }
 
-  // === ОБНОВЛЁННАЯ ФУНКЦИЯ setupTracksForJellyfin с сохранением MediaSourceId и PlaySessionId ===
+  // === ОБНОВЛЁННАЯ ФУНКЦИЯ setupTracksForJellyfin с сохранением MediaSourceId и PlaySessionId и передачей субтитров ===
   function setupTracksForJellyfin() {
     var currentMovie = null;
     var currentUserId = null;
@@ -2465,7 +2497,7 @@
       if (_savedStreams[currentMovie.Id]) {
         _savedStreams[currentMovie.Id].audio = index;
       } else {
-        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
+        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex, subtitleUrls: {} };
       }
       var opts = {
         userId: currentUserId,
@@ -2477,13 +2509,18 @@
         playSessionId: currentPlaySessionId || undefined
       };
       var url = streamUrl(currentMovie.Id, opts);
-      Lampa.Player.close();
-      Lampa.Player.play({
+      var subtitles = getSubtitlesArray(currentMovie.Id, currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined));
+      var playObj = {
         title: currentMovie.Name || 'Video',
         url: url,
         movie: currentMovie,
         quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
+      };
+      if (subtitles.length) {
+        playObj.subtitles = subtitles;
+      }
+      Lampa.Player.close();
+      Lampa.Player.play(playObj);
     }
 
     function switchSubtitle(index) {
@@ -2492,7 +2529,7 @@
       if (_savedStreams[currentMovie.Id]) {
         _savedStreams[currentMovie.Id].subtitle = index;
       } else {
-        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
+        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index, subtitleUrls: {} };
       }
       var opts = {
         userId: currentUserId,
@@ -2504,13 +2541,18 @@
         playSessionId: currentPlaySessionId || undefined
       };
       var url = streamUrl(currentMovie.Id, opts);
-      Lampa.Player.close();
-      Lampa.Player.play({
+      var subtitles = getSubtitlesArray(currentMovie.Id, index);
+      var playObj = {
         title: currentMovie.Name || 'Video',
         url: url,
         movie: currentMovie,
         quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
+      };
+      if (subtitles.length) {
+        playObj.subtitles = subtitles;
+      }
+      Lampa.Player.close();
+      Lampa.Player.play(playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
