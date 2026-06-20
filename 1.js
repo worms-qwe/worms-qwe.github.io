@@ -652,7 +652,7 @@
     ///////////////////////////////////////
   	//parts.push('SubtitleMethod=Embed');
     //parts.push('SubtitleMethod=External');
-    parts.push('Encode');
+    parts.push('SubtitleMethod=Encode');
     ///////////////////////////////////////
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
@@ -661,7 +661,7 @@
     parts.push('BreakOnNonKeyFrames=false');
     parts.push('h264-rangetype=SDR');
     parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
-    parts.push('TranscodeReasons=VideoCodecNotSupported');
+    //parts.push('TranscodeReasons=VideoCodecNotSupported');
     //parts.push('TranscodeReasons=AudioCodecNotSupported');
     //parts.push('TranscodeReasons=ContainerBitrateExceedsLimit');
     //parts.push('TranscodeReasons=VideoLevelNotSupported');
