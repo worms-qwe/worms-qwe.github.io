@@ -632,20 +632,20 @@
     parts.push('AudioCodec=aac');
     ///////////////////////////////////////
   	//parts.push('SubtitleCodec=srt');
-  	parts.push('SubtitleCodec=ass');
+  	//parts.push('SubtitleCodec=ass');
   	//parts.push('SubtitleCodec=ssa');
   	//parts.push('SubtitleCodec=smi');
-  	//parts.push('SubtitleCodec=subrip');
+  	parts.push('SubtitleCodec=subrip');
   	//parts.push('SubtitleCodec=sub');
   	//parts.push('SubtitleCodec=dvdsub');
   	//parts.push('SubtitleCodec=pgs');
   	//parts.push('SubtitleCodec=pgssub');
     ///////////////////////////////////////
     //parts.push('SubtitleFormat=srt');
-    parts.push('SubtitleFormat=ass');
+    //parts.push('SubtitleFormat=ass');
     //parts.push('SubtitleFormat=ssa');
     //parts.push('SubtitleFormat=smi');
-    //parts.push('SubtitleFormat=subrip');
+    parts.push('SubtitleFormat=subrip');
     //parts.push('SubtitleFormat=sub');
     //parts.push('SubtitleFormat=dvdsub');
     //parts.push('SubtitleFormat=pgs');
