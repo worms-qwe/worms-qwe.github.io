@@ -568,7 +568,7 @@
 
           var audioIndex, subtitleIndex;
           var subtitleUrls = {};
-		  console.error('subtitleUrls', 'subtitleUrls');
+		  console.error('subtitleUrls', subtitleUrls);
           var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
           if (defaultAudio) {
             audioIndex = defaultAudio.Index;
@@ -589,8 +589,8 @@
           streams.forEach(function(stream) {
             if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
               var fullUrl = apiBase() + stream.DeliveryUrl;
-			  console.error('fullUrl', fullUrl);
               subtitleUrls[stream.Index] = fullUrl;
+			  console.error('fullUrl1', fullUrl);
             }
           });
 
@@ -600,6 +600,7 @@
               subtitle: subtitleIndex,
               subtitleUrls: subtitleUrls
             };
+			console.error('fullUrl2', fullUrl);
           }
         }
         return info;
