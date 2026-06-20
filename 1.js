@@ -661,14 +661,15 @@
     parts.push('TranscodingProtocol=hls');
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
-    parts.push('BreakOnNonKeyFrames=false');
     parts.push('h264-rangetype=SDR');
     parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
+    ///////////////////////////////////////
     //parts.push('TranscodeReasons=VideoCodecNotSupported');
     //parts.push('TranscodeReasons=AudioCodecNotSupported');
     //parts.push('TranscodeReasons=ContainerBitrateExceedsLimit');
     //parts.push('TranscodeReasons=VideoLevelNotSupported');
-    //parts.push('RequireAvc=false');
+    ///////////////////////////////////////
+    parts.push('RequireAvc=true');
     parts.push('BreakOnNonKeyFrames=False');
     //parts.push('EnableAudioVbrEncoding=false');
 
