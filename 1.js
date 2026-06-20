@@ -2430,6 +2430,7 @@
 		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
 	  };
       var url = streamUrl(currentMovie.Id, opts);
+	  Lampa.Player.close();
       Lampa.Player.play({
           title: currentMovie.Name || 'Video',
           url: url,
@@ -2455,6 +2456,7 @@
 		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
 	  };
       var url = streamUrl(currentMovie.Id, opts);
+	  Lampa.Player.close();
       Lampa.Player.play({
           title: currentMovie.Name || 'Video',
           url: url,
