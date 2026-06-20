@@ -645,7 +645,6 @@
 
     if (!transcodingEnabled()) {
       parts.push('Static=true');
-      console.error('url1', apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&'));
       return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
     }
 
@@ -696,7 +695,6 @@
     parts.push('EnableAudioVbrEncoding=true');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
-    console.error('url2', apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&'));
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
 
@@ -1743,6 +1741,10 @@
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
+        console.error('playRow', playItemFromRow(row, userId, true));
+        console.error('row', rows);
+        console.error('allRows', allRows);
+        console.error('userId', userId);
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
@@ -2553,6 +2555,7 @@
       }
       Lampa.Player.close();
       Lampa.Player.play(playObj);
+      console.error('userId', playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
