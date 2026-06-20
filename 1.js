@@ -2555,7 +2555,12 @@
         playObj.subtitles = subtitles;
       }
       Lampa.Player.close();
-	  console.error('playObj', playObj);
+	  console.error('playObj.title', playObj.title);  
+	  console.error('playObj.url', playObj.url);  
+	  console.error('playObj.timeline', '----');  
+	  console.error('playObj.quality', playObj.quality);  
+	  console.error('playObj.movie', playObj.movie);  
+	  console.error('playObj.subtitles', playObj.subtitles);
       Lampa.Player.play(playObj);
     }
 
