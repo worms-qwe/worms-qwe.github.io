@@ -1743,9 +1743,7 @@
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
 		console.error('play', playItemFromRow(row, userId, true));
-		console.error('row.id', row.id);
-		console.error('userId', userId);
-        fetchPlaybackInfoAndSaveStreams(row.id, userId);
+		console.error('url', (playItemFromRow(row, userId, true).url);
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
