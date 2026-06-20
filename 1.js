@@ -736,8 +736,7 @@
 	console.error('item.quality', item.quality);
 	console.error('item.movie', item.movie);
 	console.error('item.subtitles', item.subtitles);
-	console.error('saved.subtitl', saved.subtitle);
-	console.error('saved.subtitl', saved.subtitle);
+	console.error('_savedStreams[row.id].subtitl', _savedStreams[row.id].subtitl);
     return item;
   }
 
