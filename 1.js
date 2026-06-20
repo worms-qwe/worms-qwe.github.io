@@ -2518,8 +2518,8 @@
       if (subtitles.length) {
         playObj.subtitles = subtitles;
       }
-      //Lampa.Player.close();
-      //Lampa.Player.play(playObj);
+      Lampa.Player.close();
+      Lampa.Player.play(playObj);
     }
 
     function switchSubtitle(index) {
@@ -2550,8 +2550,8 @@
       if (subtitles.length) {
         playObj.subtitles = subtitles;
       }
-      //Lampa.Player.close();
-      //Lampa.Player.play(playObj);
+      Lampa.Player.close();
+      Lampa.Player.play(playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
