@@ -1742,7 +1742,15 @@
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
 		console.error('play', playItemFromRow(row, userId, true));
-        Lampa.Player.play(playItemFromRow(row, userId, true));
+		var currentMovie = null;
+		var currentSubtitleIndex = null;
+		var subtitles = getSubtitlesArray(currentMovie.Id, currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined));
+		var playObj = playItemFromRow(row, userId, true);
+        if (subtitles.length) {
+          playObj.subtitles = subtitles;
+        }
+		Lampa.Player.play(playObj);
+        //Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
       .catch(function () {
