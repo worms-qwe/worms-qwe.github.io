@@ -2408,68 +2408,60 @@
     var currentSubtitleIndex = null;
 
     function switchAudio(index) {
-        if (!currentMovie) return;
-    
-        // Обновляем сохранённые индексы
-        currentAudioIndex = index;
-        if (_savedStreams[currentMovie.Id]) {
-            _savedStreams[currentMovie.Id].audio = index;
-        } else {
-            _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
-        }
-    
-        // Получаем текущее время
-        var currentTime = 0;
-        try {
-            var video = Lampa.PlayerVideo.video();
-            if (video) currentTime = video.currentTime || 0;
-        } catch (e) {}
-    
-        // Формируем новые параметры
-        var opts = {
-            userId: currentUserId,
-            startTicks: Math.floor(currentTime * 10000000),
-            audioStreamIndex: index,
-            subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-            qualityPreset: defaultTranscodePresetKey()
-        };
-        var newUrl = streamUrl(currentMovie.Id, opts);
-        var qualityMap = buildStreamQualityMap(currentMovie.Id, opts);
-    
-        // Получаем текущий объект воспроизведения
-        var work = Lampa.Player.playdata();
-        if (!work) {
-            console.error('No active play data');
-            return;
-        }
-    
-        // Сохраняем плейлист и другие параметры
-        var playlist = work.playlist || [];
-        var title = work.title || currentMovie.Name || 'Video';
-        var card = work.card || currentMovie;
-    
-        // Закрываем текущий плеер (но не вызываем callback, чтобы не переключать активность)
-        Lampa.Player.close(); // Это вызовет backward и уничтожит плеер
-    
-        // Создаём новый объект для воспроизведения
-        var newData = {
-            url: newUrl,
-            title: title,
-            movie: currentMovie,
-            quality: qualityMap,
-            timeline: { time: currentTime, continued: true },
-            playlist: playlist,
-            card: card,
-            // Передаём остальные параметры, которые могли быть в work
-            segments: work.segments,
-            subtitles: work.subtitles,
-            translate: work.translate,
-            voiceovers: work.voiceovers,
-            // и т.д.
-        };
-    
-        // Запускаем воспроизведение
-        Lampa.Player.play(newData);
+      if (!currentMovie) return;
+      currentAudioIndex = index;
+      // Обновляем сохранённые индексы для этого фильма
+      if (_savedStreams[currentMovie.Id]) {
+        _savedStreams[currentMovie.Id].audio = index;
+      } else {
+        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
+      }
+      var opts = {
+        userId: currentUserId,
+        startTicks: 0,
+        audioStreamIndex: index,
+        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+        qualityPreset: defaultTranscodePresetKey()
+      };
+      var url = streamUrl(currentMovie.Id, opts);
+      
+      // Закрываем текущий плеер (но не вызываем callback, чтобы не переключать активность)
+      Lampa.Player.close(); // Это вызовет backward и уничтожит плеер
+      
+      Lampa.Player.play({
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
+      });
+    }
+
+    function switchSubtitle(index) {
+      if (!currentMovie) return;
+      currentSubtitleIndex = index;
+      if (_savedStreams[currentMovie.Id]) {
+        _savedStreams[currentMovie.Id].subtitle = index;
+      } else {
+        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
+      }
+      var opts = {
+        userId: currentUserId,
+        startTicks: 0,
+        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
+        subtitleStreamIndex: index,
+        qualityPreset: defaultTranscodePresetKey()
+      };
+      var url = streamUrl(currentMovie.Id, opts);
+      
+      // Закрываем текущий плеер (но не вызываем callback, чтобы не переключать активность)
+      Lampa.Player.close(); // Это вызовет backward и уничтожит плеер
+      
+      Lampa.Player.play({
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
+      });
     }
 
     Lampa.Player.listener.follow('start', function(data) {
