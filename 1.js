@@ -1742,15 +1742,8 @@
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
 		console.error('play', playItemFromRow(row, userId, true));
-		var currentMovie = null;
-		var currentSubtitleIndex = null;
-		var subtitles = getSubtitlesArray(currentMovie.Id, currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined));
-		var playObj = playItemFromRow(row, userId, true);
-        if (subtitles.length) {
-          playObj.subtitles = subtitles;
-        }
-		Lampa.Player.play(playObj);
-        //Lampa.Player.play(playItemFromRow(row, userId, true));
+		console.error('_savedStreams', _savedStreams);
+        Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
       .catch(function () {
@@ -2548,6 +2541,7 @@
         playSessionId: currentPlaySessionId || undefined
       };
       var url = streamUrl(currentMovie.Id, opts);
+	  console.error('_savedStreams', _savedStreams);
       var subtitles = getSubtitlesArray(currentMovie.Id, index);
       var playObj = {
         title: currentMovie.Name || 'Video',
