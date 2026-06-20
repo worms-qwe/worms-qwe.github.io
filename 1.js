@@ -714,6 +714,7 @@
       title: row.title,
       url: streamUrl(row.id, opts),
     };
+	console.error('streamUrl(row.id, opts)', streamUrl(row.id, opts));
     if (row.resumeSec > 0) {
       item.timeline = includeMovie
         ? { time: row.resumeSec, duration: 0, percent: 0 }
@@ -730,7 +731,6 @@
       item.subtitles = subs;
       //}
     }
-
     return item;
   }
 
