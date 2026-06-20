@@ -579,16 +579,15 @@
           var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
           if (defaultSub) {
             subtitleIndex = defaultSub.Index;
+			console.error('1defaultSub', defaultSub.DeliveryUrl);
           } else {
             var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
             subtitleIndex = firstSub ? firstSub.Index : undefined;
+			console.error('2defaultSub', firstSub ? firstSub.DeliveryUrl : undefined);
           }
 
           // Собираем все субтитры и их DeliveryUrl
           streams.forEach(function(stream) {
-			console.error('111stream.DeliveryUrl', stream.DeliveryUrl);
-			console.error('111stream.Type', stream.Type);
-			console.error('111apiBase()', apiBase());
             if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
               var fullUrl = apiBase() + stream.DeliveryUrl;
               subtitleUrls[stream.Index] = fullUrl;
