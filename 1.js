@@ -49,7 +49,9 @@
   // Хранилище выбранных индексов для каждого itemId
   var _savedStreams = {};
 
-  var currentMediaSourceId = null;  // реальный MediaSourceId из PlaybackInfo
+  // === НОВЫЕ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ТЕКУЩЕЙ СЕССИИ ===
+  var currentMediaSourceId = null;
+  var currentPlaySessionId = null;
 
   function addLang() {
     Lampa.Lang.add({
@@ -122,7 +124,7 @@
       jellyfin_mark_watched: { en: 'Mark as watched', ru: 'Отметить просмотренным' },
       jellyfin_mark_unwatched: { en: 'Mark as unwatched', ru: 'Снять отметку просмотра' },
       jellyfin_mark_watched_ok: { en: 'Marked as watched', ru: 'Отмечено как просмотрено' },
-      jellyfin_mark_unwatched_ok: { en: 'Marked as unwatched', ru: 'Отметка просмотра снята' },
+      jellyfin_mark_unwatched_ok: { en: 'Marked as unwatched', ru: 'Снята отметка просмотра' },
       jellyfin_season_n: { en: 'Season {0}', ru: 'Сезон {0}' },
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
@@ -579,21 +581,23 @@
       });
   }
 
+  // === ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с поддержкой MediaSourceId и PlaySessionId ===
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
     if (!id) return '';
 
-	// Если передан mediaSourceId в opts, используем его, иначе генерируем из itemId
-    var srcId = opts.mediaSourceId || mediaSourceId(id);  // mediaSourceId – существующая функция
+    // Используем переданный mediaSourceId, если есть, иначе генерируем из itemId
+    var srcId = opts.mediaSourceId || mediaSourceId(id);
 
     var parts = [
       'DeviceId=' + encodeURIComponent(getDeviceId()),
-      'MediaSourceId=' + encodeURIComponent(mediaSourceId(id)),
+      'MediaSourceId=' + encodeURIComponent(srcId),
       'api_key=' + encodeURIComponent(apiKey()),
     ];
     if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
+    if (opts.playSessionId) parts.push('PlaySessionId=' + encodeURIComponent(opts.playSessionId));
 
     // Используем сохранённые индексы для данного itemId, если они есть
     var saved = _savedStreams[id];
@@ -610,6 +614,9 @@
     if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
       parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
     }
+
+    // Добавляем случайный параметр для обхода кэша (опционально)
+    parts.push('_=' + Date.now());
 
     if (!transcodingEnabled()) {
       parts.push('Static=true');
@@ -1649,12 +1656,10 @@
     });
   }
 
-  // Переопределяем playRow для получения сохранённых индексов
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
-        // Если для этого itemId ещё нет сохранённых индексов, получаем их
         if (!_savedStreams[row.id]) {
           return fetchPlaybackInfoAndSaveStreams(row.id, userId).then(function() {
             return userId;
@@ -2405,7 +2410,7 @@
     });
   }
 
-  // Функция для обработки дорожек и управления переключением (для UI)
+  // === ОБНОВЛЁННАЯ ФУНКЦИЯ setupTracksForJellyfin с сохранением MediaSourceId и PlaySessionId ===
   function setupTracksForJellyfin() {
     var currentMovie = null;
     var currentUserId = null;
@@ -2415,27 +2420,26 @@
     function switchAudio(index) {
       if (!currentMovie) return;
       currentAudioIndex = index;
-      // Обновляем сохранённые индексы для этого фильма
       if (_savedStreams[currentMovie.Id]) {
         _savedStreams[currentMovie.Id].audio = index;
       } else {
         _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
       }
       var opts = {
-		userId: currentUserId,
-		startTicks: 0,
-		audioStreamIndex: index,                           // для audio
-		subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-		qualityPreset: defaultTranscodePresetKey(),
-		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
-	  };
+        userId: currentUserId,
+        startTicks: 0,
+        audioStreamIndex: index,
+        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+        qualityPreset: defaultTranscodePresetKey(),
+        mediaSourceId: currentMediaSourceId || undefined,
+        playSessionId: currentPlaySessionId || undefined
+      };
       var url = streamUrl(currentMovie.Id, opts);
-	  Lampa.Player.close();
       Lampa.Player.play({
-          title: currentMovie.Name || 'Video',
-          url: url,
-          movie: currentMovie,
-          quality: buildStreamQualityMap(currentMovie.Id, opts)
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
       });
     }
 
@@ -2448,20 +2452,20 @@
         _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
       }
       var opts = {
-		userId: currentUserId,
-		startTicks: 0,
-		audioStreamIndex: index,                           // для audio
-		subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-		qualityPreset: defaultTranscodePresetKey(),
-		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
-	  };
+        userId: currentUserId,
+        startTicks: 0,
+        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
+        subtitleStreamIndex: index,
+        qualityPreset: defaultTranscodePresetKey(),
+        mediaSourceId: currentMediaSourceId || undefined,
+        playSessionId: currentPlaySessionId || undefined
+      };
       var url = streamUrl(currentMovie.Id, opts);
-	  Lampa.Player.close();
       Lampa.Player.play({
-          title: currentMovie.Name || 'Video',
-          url: url,
-          movie: currentMovie,
-          quality: buildStreamQualityMap(currentMovie.Id, opts)
+        title: currentMovie.Name || 'Video',
+        url: url,
+        movie: currentMovie,
+        quality: buildStreamQualityMap(currentMovie.Id, opts)
       });
     }
 
@@ -2473,23 +2477,22 @@
       currentMovie = data.movie;
       resolveUserId().then(function(userId) {
         currentUserId = userId;
-        // Если ещё нет сохранённых индексов для этого фильма, получаем их
         if (!_savedStreams[itemId]) {
           return fetchPlaybackInfoAndSaveStreams(itemId, userId);
         }
         return Promise.resolve();
       }).then(function() {
-        // Теперь у нас есть сохранённые индексы (или они уже были)
-        // Запрашиваем PlaybackInfo для получения списка потоков (но не перезаписываем индексы)
         return jfHttp('/Items/' + encodeURIComponent(itemId) +
                   '/PlaybackInfo?UserId=' + encodeURIComponent(currentUserId) +
                   '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true');
       }).then(function(info) {
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
-		if (source) {
-		    currentMediaSourceId = source.Id;  // сохраняем реальный идентификатор
-		}
+        if (source) {
+          // Сохраняем реальный MediaSourceId и PlaySessionId
+          currentMediaSourceId = source.Id;
+          currentPlaySessionId = info.PlaySessionId || null;
+        }
         var streams = source.MediaStreams || [];
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
@@ -2498,7 +2501,6 @@
         var defaultAudio = saved ? saved.audio : undefined;
         var defaultSub = saved ? saved.subtitle : undefined;
 
-        // Если сохранённых нет (что маловероятно), пробуем взять из IsDefault
         if (defaultAudio === undefined) {
           var defAudio = audioStreams.find(function(s) { return s.IsDefault; });
           defaultAudio = defAudio ? defAudio.Index : (audioStreams.length ? audioStreams[0].Index : undefined);
@@ -2526,7 +2528,6 @@
                 tracks.forEach(function(t) { t.selected = false; });
                 track.selected = true;
                 Lampa.PlayerPanel.setTracks(tracks);
-                console.error('tracks1', tracks);
               }
             },
             get: function() { return track.selected; }
@@ -2549,7 +2550,6 @@
                 subs.forEach(function(s) { s.selected = false; });
                 sub.selected = true;
                 Lampa.PlayerPanel.setSubs(subs);
-                console.error('subs1', subs);
               }
             },
             get: function() { return sub.selected ? 'showing' : 'disabled'; }
@@ -2559,11 +2559,9 @@
 
         if (tracks.length) {
           Lampa.PlayerPanel.setTracks(tracks);
-          console.error('tracks2', tracks);
         }
         if (subs.length) {
           Lampa.PlayerPanel.setSubs(subs);
-          console.error('subs2', subs);
         }
       }).catch(function(e) {
         console.error('Jellyfin tracks setup error:', e);
