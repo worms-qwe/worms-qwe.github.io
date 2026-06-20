@@ -742,7 +742,7 @@
 
   function playlistFromRows(rows, userId) {
     return rows.map(function (row) {
-      return playItemFromRow(row, userId, false);
+      //return playItemFromRow(row, userId, false);
     });
   }
 
