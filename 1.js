@@ -655,7 +655,7 @@
     //parts.push('SubtitleMethod=External');
     //parts.push('SubtitleMethod=Encode');
     ///////////////////////////////////////
-    parts.push('SubtitleDeliveryMethod=hls');
+    parts.push('SubtitleDeliveryMethod=Embed');
     ///////////////////////////////////////
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
