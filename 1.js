@@ -2555,7 +2555,7 @@
       }
       Lampa.Player.close();
       Lampa.Player.play(playObj);
-      console.error('userId', playObj);
+      console.error('playObj', playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
