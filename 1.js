@@ -661,6 +661,10 @@
     parts.push('BreakOnNonKeyFrames=false');
     parts.push('h264-rangetype=SDR');
     parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
+    parts.push('TranscodeReasons=VideoCodecNotSupported');
+    //parts.push('TranscodeReasons=AudioCodecNotSupported');
+    //parts.push('TranscodeReasons=ContainerBitrateExceedsLimit');
+    //parts.push('TranscodeReasons=VideoLevelNotSupported');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
