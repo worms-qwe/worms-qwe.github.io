@@ -1741,10 +1741,10 @@
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
-        console.storage('playRow', playItemFromRow(row, userId, true));
-        console.storage('row', row);
-        console.storage('allRows', allRows);
-        console.storage('userId', userId);
+        console.log('playRow', playItemFromRow(row, userId, true));
+        console.log('row', row);
+        console.log('allRows', allRows);
+        console.log('userId', userId);
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
@@ -2555,7 +2555,7 @@
       }
       Lampa.Player.close();
       Lampa.Player.play(playObj);
-      console.storage('playObj', playObj);
+      console.log('playObj', playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
