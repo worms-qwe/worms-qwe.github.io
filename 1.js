@@ -557,7 +557,6 @@
 
   // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-	console.error('fetchPlaybackInfoAndSaveStreams', 'called');
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
               '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
               '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
@@ -568,7 +567,6 @@
 
           var audioIndex, subtitleIndex;
           var subtitleUrls = {};
-		  console.error('subtitleUrls', subtitleUrls);
           var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
           if (defaultAudio) {
             audioIndex = defaultAudio.Index;
@@ -590,7 +588,6 @@
             if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
               var fullUrl = apiBase() + stream.DeliveryUrl;
               subtitleUrls[stream.Index] = fullUrl;
-			  console.error('fullUrl1', fullUrl);
             }
           });
 
@@ -600,13 +597,11 @@
               subtitle: subtitleIndex,
               subtitleUrls: subtitleUrls
             };
-			console.error('fullUrl2', fullUrl);
           }
         }
         return info;
       })
       .catch(function(e) {
-        console.error('Failed to fetch PlaybackInfo:', e);
       });
   }
 
@@ -2522,8 +2517,8 @@
       if (subtitles.length) {
         playObj.subtitles = subtitles;
       }
-      Lampa.Player.close();
-      Lampa.Player.play(playObj);
+      //Lampa.Player.close();
+      //Lampa.Player.play(playObj);
     }
 
     function switchSubtitle(index) {
@@ -2554,8 +2549,8 @@
       if (subtitles.length) {
         playObj.subtitles = subtitles;
       }
-      Lampa.Player.close();
-      Lampa.Player.play(playObj);
+      //Lampa.Player.close();
+      //Lampa.Player.play(playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
