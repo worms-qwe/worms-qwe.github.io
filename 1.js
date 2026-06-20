@@ -1744,8 +1744,8 @@
         var playlist = playlistFromRows(rows, userId);
 		console.error('play', playItemFromRow(row, userId, true));
 		console.error('row.id', row.id);
+		console.error('userId', userId);
         fetchPlaybackInfoAndSaveStreams(row.id, userId);
-		console.error('fetchPlaybackInfoAndSaveStreams saved?', '');
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
