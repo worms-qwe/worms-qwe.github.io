@@ -629,7 +629,16 @@
     parts.push('VideoCodec=h264');
     parts.push('AudioCodec=aac');
     ///////////////////////////////////////
-  	//parts.push('SubtitleCodec=');
+  	//parts.push('SubtitleCodec=srt');
+  	parts.push('SubtitleCodec=ass');
+  	//parts.push('SubtitleCodec=ssa');
+  	//parts.push('SubtitleCodec=smi');
+  	//parts.push('SubtitleCodec=subrip');
+  	//parts.push('SubtitleCodec=sub');
+  	//parts.push('SubtitleCodec=sub');
+  	//parts.push('SubtitleCodec=dvdsub');
+  	//parts.push('SubtitleCodec=pgs');
+  	//parts.push('SubtitleCodec=pgssub');
     ///////////////////////////////////////
     //parts.push('SubtitleFormat=srt');
     parts.push('SubtitleFormat=ass');
@@ -640,11 +649,10 @@
     //parts.push('SubtitleFormat=dvdsub');
     //parts.push('SubtitleFormat=pgs');
     //parts.push('SubtitleFormat=pgssub');
-    //parts.push('SubtitleFormat=srt');
-    //parts.push('SubtitleFormat=sub');
     ///////////////////////////////////////
   	//parts.push('SubtitleMethod=Embed');
     //parts.push('SubtitleMethod=External');
+    parts.push('Encode');
     ///////////////////////////////////////
     parts.push('TranscodingContainer=ts');
     parts.push('TranscodingProtocol=hls');
