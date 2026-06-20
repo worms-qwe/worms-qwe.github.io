@@ -630,6 +630,12 @@
 
     parts.push('VideoCodec=h264');
     parts.push('AudioCodec=aac');
+    parts.push('TranscodingContainer=ts');
+    parts.push('TranscodingProtocol=hls');
+    parts.push('SegmentContainer=ts');
+    parts.push('MinSegments=1');
+    parts.push('h264-rangetype=SDR');
+    parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
     ///////////////////////////////////////
   	//parts.push('SubtitleCodec=srt');
   	//parts.push('SubtitleCodec=ass');
@@ -651,18 +657,13 @@
     //parts.push('SubtitleFormat=pgs');
     //parts.push('SubtitleFormat=pgssub');
     ///////////////////////////////////////
-  	parts.push('SubtitleMethod=Embed');
-    //parts.push('SubtitleMethod=External');
+  	//parts.push('SubtitleMethod=Embed');
+    parts.push('SubtitleMethod=External');
     //parts.push('SubtitleMethod=Encode');
     ///////////////////////////////////////
-    parts.push('SubtitleDeliveryMethod=Embed');
+    //parts.push('SubtitleDeliveryMethod=Embed');
+    parts.push('SubtitleDeliveryMethod=External');
     ///////////////////////////////////////
-    parts.push('TranscodingContainer=ts');
-    parts.push('TranscodingProtocol=hls');
-    parts.push('SegmentContainer=ts');
-    parts.push('MinSegments=1');
-    parts.push('h264-rangetype=SDR');
-    parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
     ///////////////////////////////////////
     //parts.push('TranscodeReasons=VideoCodecNotSupported');
     //parts.push('TranscodeReasons=AudioCodecNotSupported');
