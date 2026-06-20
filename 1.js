@@ -2428,6 +2428,8 @@
   	  // Добавляем startTicks в opts
   	  opts.startTicks = Math.floor(currentTime * 10000000);
   	  var url = streamUrl(currentMovie.Id, opts);
+  	  console.error('opts', opts);
+  	  console.error('url', url);
   	  var playObj = {
   	  	title: currentMovie.Name || 'Video',
   	  	url: url,
