@@ -1743,7 +1743,7 @@
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
 		console.error('play', playItemFromRow(row, userId, true));
-		console.error('url', (playItemFromRow(row, userId, true).url);
+		setupTracksForJellyfin();
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
