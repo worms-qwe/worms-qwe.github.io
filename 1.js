@@ -49,6 +49,8 @@
   // Хранилище выбранных индексов для каждого itemId
   var _savedStreams = {};
 
+  var currentMediaSourceId = null;  // реальный MediaSourceId из PlaybackInfo
+
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -581,6 +583,9 @@
     opts = opts || {};
     var id = String(itemId || '');
     if (!id) return '';
+
+	// Если передан mediaSourceId в opts, используем его, иначе генерируем из itemId
+    var srcId = opts.mediaSourceId || mediaSourceId(id);  // mediaSourceId – существующая функция
 
     var parts = [
       'DeviceId=' + encodeURIComponent(getDeviceId()),
@@ -2418,12 +2423,13 @@
         _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex };
       }
       var opts = {
-        userId: currentUserId,
-        startTicks: 0,
-        audioStreamIndex: index,
-        subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
-        qualityPreset: defaultTranscodePresetKey()
-      };
+		userId: currentUserId,
+		startTicks: 0,
+		audioStreamIndex: index,                           // для audio
+		subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+		qualityPreset: defaultTranscodePresetKey(),
+		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
+	  };
       var url = streamUrl(currentMovie.Id, opts);
       Lampa.Player.play({
           title: currentMovie.Name || 'Video',
@@ -2442,12 +2448,13 @@
         _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index };
       }
       var opts = {
-        userId: currentUserId,
-        startTicks: 0,
-        audioStreamIndex: currentAudioIndex !== undefined ? currentAudioIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].audio : undefined),
-        subtitleStreamIndex: index,
-        qualityPreset: defaultTranscodePresetKey()
-      };
+		userId: currentUserId,
+		startTicks: 0,
+		audioStreamIndex: index,                           // для audio
+		subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
+		qualityPreset: defaultTranscodePresetKey(),
+		mediaSourceId: currentMediaSourceId || undefined   // используем сохранённый
+	  };
       var url = streamUrl(currentMovie.Id, opts);
       Lampa.Player.play({
           title: currentMovie.Name || 'Video',
@@ -2479,6 +2486,9 @@
       }).then(function(info) {
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
+		if (source) {
+		    currentMediaSourceId = source.Id;  // сохраняем реальный идентификатор
+		}
         var streams = source.MediaStreams || [];
         var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
         var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
