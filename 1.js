@@ -708,7 +708,16 @@
   }
 
   function playItemFromRow(row, userId, includeMovie) {
-    var opts = { userId: userId, startTicks: rowStartTicks(row) };
+    var saved = _savedStreams[row.id];
+    var opts = { 
+		userId: userId, 
+		startTicks: rowStartTicks(row),
+		audioStreamIndex: saved.audio,
+		ubtitleStreamIndex: saved.subtitle,
+		qualityPreset: defaultTranscodePresetKey(),
+		mediaSourceId: currentMediaSourceId || undefined,
+        playSessionId: currentPlaySessionId || undefined
+	};
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
@@ -723,7 +732,6 @@
     if (includeMovie) item.movie = row.raw;
 
     // Добавляем субтитры, используя getSubtitlesArray
-    var saved = _savedStreams[row.id];
     if (saved && saved.subtitle !== undefined) {
       var subs = getSubtitlesArray(row.id, saved.subtitle);
       //if (subs.length) {
@@ -736,7 +744,6 @@
 	console.error('item.quality', item.quality);
 	console.error('item.movie', item.movie);
 	console.error('item.subtitles', item.subtitles);
-	console.error('_savedStreams[row.id].subtitl', _savedStreams[row.id].subtitl);
     return item;
   }
 
