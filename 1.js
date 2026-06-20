@@ -555,11 +555,45 @@
     return [{ url: url, label: 'Subtitle' }];
   }
 
-  // Функция получения PlaybackInfo и сохранения индексов по IsDefault
+  // === НОВАЯ ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ DEVICE PROFILE ===
+  function getDeviceProfile() {
+    return {
+      MaxStreamingBitrate: 120000000,
+      MaxStaticBitrate: 100000000,
+      MusicStreamingTranscodingBitrate: 384000,
+      DirectPlayProfiles: [
+        { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' },
+        { Container: 'mkv', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' },
+        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+      ],
+      TranscodingProfiles: [
+        { Container: 'ts', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false }
+      ],
+      SubtitleProfiles: [
+        { Format: 'subrip', Method: 'External' },
+        { Format: 'ass', Method: 'External' }
+      ],
+      CodecProfiles: [
+        { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline', IsRequired: false }] }
+      ]
+    };
+  }
+	
+  // === ИСПРАВЛЕННАЯ fetchPlaybackInfoAndSaveStreams (POST) ===
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-	http://192.168.0.100:8096/Users/752326c5d07f4bb1ad827ca9e9449499/Items/1de1cb59e635ee79af5243928162f0b1
-	jfHttp('/Users/' + encodeURIComponent(userId) + '/Items/' + encodeURIComponent(itemId))
-	return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo')
+    var body = {
+      UserId: userId,
+      StartTimeTicks: 0,
+      IsPlayback: true,
+      AutoOpenLiveStream: true,
+      DeviceProfile: getDeviceProfile()
+    };
+
+    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
+      method: 'POST',
+      jsonBody: body,
+      dataType: 'json'
+    })
       .then(function(info) {
         if (info && info.MediaSources && info.MediaSources.length) {
           var source = info.MediaSources[0];
@@ -578,20 +612,18 @@
           var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
           if (defaultSub) {
             subtitleIndex = defaultSub.Index;
-			subtitleUrls = defaultSub.DeliveryUrl;
-			console.error('1defaultSub', defaultSub);
-			console.error('1defaultSub.DeliveryUrl', defaultSub.DeliveryUrl);
           } else {
             var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
             subtitleIndex = firstSub ? firstSub.Index : undefined;
-			console.error('2defaultSub', firstSub ? firstSub.Level : undefined);
           }
 
-          // Собираем все субтитры и их DeliveryUrl
+          var mediaSourceId = source.Id || mediaSourceId(itemId);
+
           streams.forEach(function(stream) {
-            if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-              var fullUrl = apiBase() + stream.DeliveryUrl;
-              subtitleUrls[stream.Index] = fullUrl;
+            if (stream.Type === 'Subtitle') {
+              if (stream.DeliveryUrl) {
+                subtitleUrls[stream.Index] = apiBase() + stream.DeliveryUrl;
+              }
             }
           });
 
@@ -599,16 +631,18 @@
             _savedStreams[itemId] = {
               audio: audioIndex,
               subtitle: subtitleIndex,
-              subtitleUrls: subtitleUrls
+              subtitleUrls: subtitleUrls,
+              mediaSourceId: mediaSourceId
             };
           }
         }
         return info;
       })
       .catch(function(e) {
+        console.error('Failed to fetch PlaybackInfo:', e);
       });
   }
-
+	
   // === ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с поддержкой MediaSourceId и PlaySessionId ===
   function streamUrl(itemId, opts) {
     opts = opts || {};
