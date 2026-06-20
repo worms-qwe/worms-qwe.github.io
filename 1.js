@@ -2423,17 +2423,22 @@
         subtitleStreamIndex: currentSubtitleIndex !== undefined ? currentSubtitleIndex : (_savedStreams[currentMovie.Id] ? _savedStreams[currentMovie.Id].subtitle : undefined),
         qualityPreset: defaultTranscodePresetKey()
       };
-      var url = streamUrl(currentMovie.Id, opts);
-      
-      // Закрываем текущий плеер (но не вызываем callback, чтобы не переключать активность)
-      Lampa.Player.close(); // Это вызовет backward и уничтожит плеер
-      
-      Lampa.Player.play({
-        title: currentMovie.Name || 'Video',
-        url: url,
-        movie: currentMovie,
-        quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
+      // Получаем текущее время в секундах
+  	  var currentTime = (typeof Lampa.Player.time === 'function') ? Lampa.Player.time() : 0;
+  	  // Добавляем startTicks в opts
+  	  opts.startTicks = Math.floor(currentTime * 10000000);
+  	  var url = streamUrl(currentMovie.Id, opts);
+  	  var playObj = {
+  	  	title: currentMovie.Name || 'Video',
+  	  	url: url,
+  	  	movie: currentMovie,
+  	  	quality: buildStreamQualityMap(currentMovie.Id, opts)
+  	  };
+  	  // Если время > 0, передаём timeline
+  	  if (currentTime > 0) {
+  	  	playObj.timeline = { time: currentTime };
+  	  }
+  	  Lampa.Player.play(playObj);
     }
 
     function switchSubtitle(index) {
@@ -2451,17 +2456,22 @@
         subtitleStreamIndex: index,
         qualityPreset: defaultTranscodePresetKey()
       };
-      var url = streamUrl(currentMovie.Id, opts);
-      
-      // Закрываем текущий плеер (но не вызываем callback, чтобы не переключать активность)
-      Lampa.Player.close(); // Это вызовет backward и уничтожит плеер
-      
-      Lampa.Player.play({
-        title: currentMovie.Name || 'Video',
-        url: url,
-        movie: currentMovie,
-        quality: buildStreamQualityMap(currentMovie.Id, opts)
-      });
+      // Получаем текущее время в секундах
+  	  var currentTime = (typeof Lampa.Player.time === 'function') ? Lampa.Player.time() : 0;
+  	  // Добавляем startTicks в opts
+  	  opts.startTicks = Math.floor(currentTime * 10000000);
+  	  var url = streamUrl(currentMovie.Id, opts);
+  	  var playObj = {
+  	  	title: currentMovie.Name || 'Video',
+  	  	url: url,
+  	  	movie: currentMovie,
+  	  	quality: buildStreamQualityMap(currentMovie.Id, opts)
+  	  };
+  	  // Если время > 0, передаём timeline
+  	  if (currentTime > 0) {
+  	  	playObj.timeline = { time: currentTime };
+  	  }
+  	  Lampa.Player.play(playObj);
     }
 
     Lampa.Player.listener.follow('start', function(data) {
