@@ -623,6 +623,7 @@
 
     if (!transcodingEnabled()) {
       parts.push('Static=true');
+      console.error('url1', apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&'));
       return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
     }
 
@@ -667,6 +668,7 @@
     //parts.push('TranscodeReasons=VideoLevelNotSupported');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
+    console.error('url2', apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&'));
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
 
