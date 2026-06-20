@@ -2549,10 +2549,14 @@
         movie: currentMovie,
         quality: buildStreamQualityMap(currentMovie.Id, opts)
       };
+	  console.error('playObj_1', playObj);
+	  console.error('subtitles.length', subtitles.length);
       if (subtitles.length) {
         playObj.subtitles = subtitles;
+		console.error('subtitles', subtitles);
       }
       Lampa.Player.close();
+	  console.error('playObj', playObj);
       Lampa.Player.play(playObj);
     }
 
