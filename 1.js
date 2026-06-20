@@ -587,6 +587,7 @@
           streams.forEach(function(stream) {
             if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
               var fullUrl = apiBase() + stream.DeliveryUrl;
+			  console.error('fullUrl', fullUrl);
               subtitleUrls[stream.Index] = fullUrl;
             }
           });
@@ -1741,6 +1742,7 @@
       })
       .then(function (userId) {
         var playlist = playlistFromRows(rows, userId);
+		console.error('play', playItemFromRow(row, userId, true));
         Lampa.Player.play(playItemFromRow(row, userId, true));
         Lampa.Player.playlist(playlist);
       })
