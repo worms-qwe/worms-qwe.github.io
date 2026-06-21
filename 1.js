@@ -596,6 +596,7 @@
         var newPlay = Object.assign({}, currentPlay, { url: src.TranscodingUrl });
         newPlay.timeline = { time: startTicks / 10000000 };
         Lampa.Player.close();
+		console.error('newPlay', newPlay);
         Lampa.Player.play(newPlay);
       }
     });
