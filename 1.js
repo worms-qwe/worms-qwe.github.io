@@ -525,7 +525,6 @@
       AutoOpenLiveStream: true,
       MaxStreamingBitrate: 815559111,
       AlwaysBurnInSubtitleWhenTranscoding: false,
-      MaxWidth: 1280,
       DeviceProfile: {
         "MaxStreamingBitrate": 120000000,
         "MaxStaticBitrate": 100000000,
