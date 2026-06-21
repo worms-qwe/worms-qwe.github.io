@@ -580,7 +580,8 @@
           var source = info.MediaSources[0];
           var streams = source.MediaStreams || [];
           console.error('streams', streams);
-          console.error('subs', streams.find(function(s) { return s.Type === 'Subtitle'; })
+          var zzzzz = streams.find(function(s) { return s.Type === 'Subtitle'; });
+          console.error('subs', zzzzz})
 
           var audioIndex, subtitleIndex;
           var subtitleUrls = {};
