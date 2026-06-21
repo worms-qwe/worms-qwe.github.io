@@ -491,6 +491,7 @@
 
     var postBody = {
       UserId: userId,
+      DeviceId: getDeviceId(),
       StartTimeTicks: startTicks,
       IsPlayback: true,
       AutoOpenLiveStream: true,
@@ -553,7 +554,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // --- Функция создания объекта для плеера (для внутреннего плеера с транскодированием) ---
+  // --- Функция создания объекта для плеера (с fallback) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
     console.log('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
@@ -561,14 +562,37 @@
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         console.log('[Jellyfin] buildPlayObject got info', info);
-        var src = info.MediaSources && info.MediaSources[0];
+        var sources = info.MediaSources || [];
+        // Ищем источник с поддержкой транскодирования
+        var src = sources.find(function (s) { return s.SupportsTranscoding === true; }) || sources[0];
         if (!src) {
-          throw new Error('No MediaSources in response');
+          throw new Error('No suitable MediaSource found');
         }
-        if (!src.TranscodingUrl) {
-          throw new Error('No TranscodingUrl in MediaSource');
+        console.log('[Jellyfin] Selected source:', src);
+
+        var fullUrl = null;
+        if (src.TranscodingUrl) {
+          var rawUrl = src.TranscodingUrl;
+          var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+          fullUrl = apiBase() + fixedUrl;
+          console.log('[Jellyfin] Using TranscodingUrl:', fullUrl);
+        } else if (src.DirectStreamUrl) {
+          var rawDirect = src.DirectStreamUrl;
+          var fixedDirect = rawDirect.replace(/\\u0026/g, '&');
+          fullUrl = apiBase() + fixedDirect;
+          console.log('[Jellyfin] Using DirectStreamUrl:', fullUrl);
+        } else {
+          // Fallback: генерируем URL через streamUrl
+          console.warn('[Jellyfin] No TranscodingUrl or DirectStreamUrl, using fallback streamUrl');
+          fullUrl = streamUrl(itemId, { userId: userId, startTicks: startTicks, mediaSourceId: src.Id });
+          console.log('[Jellyfin] Fallback URL:', fullUrl);
         }
 
+        if (!fullUrl) {
+          throw new Error('Could not generate playback URL');
+        }
+
+        // Сохраняем глобальные данные
         var streams = src.MediaStreams || [];
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
@@ -580,12 +604,6 @@
         currentPlaySessionId = info.PlaySessionId;
         currentMediaStreams = streams;
 
-        // Исправляем URL: заменяем \u0026 на &
-        var rawUrl = src.TranscodingUrl;
-        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-        var fullUrl = apiBase() + fixedUrl;
-        console.log('[Jellyfin] Full URL (fixed):', fullUrl);
-
         var playObj = {
           title: row.title,
           url: fullUrl,
@@ -595,7 +613,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-        console.log('[Jellyfin] playObj created:', playObj);
+        console.log('[Jellyfin] final playObj:', playObj);
         return playObj;
       });
   }
@@ -608,19 +626,27 @@
       subtitleStreamIndex: subIdx,
       startTicks: startTicks
     }).then(function (info) {
-      var src = info.MediaSources[0];
-      if (!src || !src.TranscodingUrl) {
-        throw new Error('No TranscodingUrl');
+      var src = info.MediaSources && info.MediaSources[0];
+      if (!src) throw new Error('No MediaSource');
+      var fullUrl = null;
+      if (src.TranscodingUrl) {
+        var rawUrl = src.TranscodingUrl;
+        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+        fullUrl = apiBase() + fixedUrl;
+      } else if (src.DirectStreamUrl) {
+        var rawDirect = src.DirectStreamUrl;
+        var fixedDirect = rawDirect.replace(/\\u0026/g, '&');
+        fullUrl = apiBase() + fixedDirect;
+      } else {
+        fullUrl = streamUrl(itemId, { userId: userId, startTicks: startTicks, mediaSourceId: src.Id });
       }
+      if (!fullUrl) throw new Error('No URL');
+
       currentPlaySessionId = info.PlaySessionId;
       currentMediaStreams = src.MediaStreams || [];
       if (audioIdx !== undefined) currentAudioIndex = audioIdx;
       if (subIdx !== undefined) currentSubtitleIndex = subIdx;
       currentMediaSourceId = src.Id;
-
-      var rawUrl = src.TranscodingUrl;
-      var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-      var fullUrl = apiBase() + fixedUrl;
 
       var currentPlay = Lampa.Player.playdata();
       if (currentPlay) {
@@ -679,7 +705,6 @@
           mode: selected ? 'showing' : 'disabled'
         };
         if (stream.DeliveryUrl) {
-          // Исправляем URL субтитров – тоже заменяем \u0026 на & (если есть)
           var fixedSubUrl = stream.DeliveryUrl.replace(/\\u0026/g, '&');
           sub.url = apiBase() + fixedSubUrl;
         }
