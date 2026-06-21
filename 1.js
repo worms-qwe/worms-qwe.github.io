@@ -1708,6 +1708,7 @@
       var startTicks = rowStartTicks(row);
 	  console.error('startTicks', startTicks);
       if (transcodingEnabled()) {
+		console.error('transcodingEnabled', 'true');
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
             if (allRows && allRows.length > 1) {
