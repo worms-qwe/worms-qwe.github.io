@@ -588,9 +588,9 @@
         ResponseProfiles: [
           { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
         ]
-      };
+      }
     };
-  };
+  }
 
   // === ИСПРАВЛЕННАЯ fetchPlaybackInfoAndSaveStreams (POST без EnableAllSubtitleTracks) ===
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
