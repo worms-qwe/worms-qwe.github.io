@@ -534,10 +534,10 @@
         { Format: 'subrip', Method: 'External' }
       ],
       DirectPlayProfiles: [
-        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
       TranscodingProfiles: [
-        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
       MaxStreamingBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
       MaxStaticBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
