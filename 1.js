@@ -517,11 +517,14 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
+  // Функция получения URL субтитров
   function getSubtitlesArray(itemId, subtitleIndex) {
     var saved = _savedStreams[itemId];
     if (!saved) return [];
+    // Если есть сохранённый URL для этого индекса (из DeliveryUrl), используем его
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
     if (url) return [{ url: url, label: 'Subtitle' }];
+    // Если нет, пытаемся сформировать вручную (на случай, если DeliveryUrl не пришёл)
     var msId = saved.mediaSourceId || mediaSourceId(itemId);
     var base = apiBase();
     var key = apiKey();
@@ -529,6 +532,7 @@
     return [{ url: manualUrl, label: 'Subtitle' }];
   }
 
+  // Функция получения PlaybackInfo и сохранения индексов с формированием URL субтитров
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
               '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
@@ -556,8 +560,10 @@
             subtitleIndex = firstSub ? firstSub.Index : undefined;
           }
 
+          // Сохраняем mediaSourceId для ручного формирования URL субтитров (если DeliveryUrl отсутствует)
           var mediaSourceId = source.Id || mediaSourceId(itemId);
 
+          // Собираем все субтитры и их URL (из DeliveryUrl)
           streams.forEach(function(stream) {
             if (stream.Type === 'Subtitle') {
               if (stream.DeliveryUrl) {
@@ -571,7 +577,7 @@
               audio: audioIndex,
               subtitle: subtitleIndex,
               subtitleUrls: subtitleUrls,
-              mediaSourceId: mediaSourceId
+              mediaSourceId: mediaSourceId // сохраняем для fallback
             };
           }
         }
@@ -648,21 +654,22 @@
     return map;
   }
 
-  // === ОБНОВЛЁННАЯ playItemFromRow с единообразной структурой ===
   function playItemFromRow(row, userId, includeMovie) {
     var opts = { userId: userId, startTicks: rowStartTicks(row) };
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
       url: streamUrl(row.id, opts),
-      movie: row.raw, // всегда передаём movie
     };
-    if (qualityMap) item.quality = qualityMap;
     if (row.resumeSec > 0) {
       item.timeline = includeMovie
         ? { time: row.resumeSec, duration: 0, percent: 0 }
         : { time: row.resumeSec };
     }
+    if (qualityMap) item.quality = qualityMap;
+    if (includeMovie) item.movie = row.raw;
+
+    // Добавляем субтитры, используя getSubtitlesArray
     var saved = _savedStreams[row.id];
     if (saved && saved.subtitle !== undefined) {
       var subs = getSubtitlesArray(row.id, saved.subtitle);
@@ -670,6 +677,7 @@
         item.subtitles = subs;
       }
     }
+
     return item;
   }
 
@@ -1667,6 +1675,7 @@
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
+        // Если данных ещё нет, обязательно запрашиваем PlaybackInfo
         if (!_savedStreams[row.id]) {
           return fetchPlaybackInfoAndSaveStreams(row.id, userId).then(function() {
             return userId;
@@ -2417,6 +2426,7 @@
     });
   }
 
+  // === ОБНОВЛЁННАЯ ФУНКЦИЯ setupTracksForJellyfin с сохранением MediaSourceId, PlaySessionId и передачей субтитров ===
   function setupTracksForJellyfin() {
     var currentMovie = null;
     var currentUserId = null;
