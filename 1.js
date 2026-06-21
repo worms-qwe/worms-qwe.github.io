@@ -514,31 +514,6 @@
   function fetchPlaybackInfo(itemId, userId, opts) {
     opts = opts || {};
     var startTicks = opts.startTicks || 0;
-  
-    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
-  
-	 var postBody = {
-      UserId: userId,
-      //DeviceId: getDeviceId(),
-      StartTimeTicks: startTicks,
-      IsPlayback: true,
-      AutoOpenLiveStream: true,
-      MaxStreamingBitrate: 815559111,
-      AlwaysBurnInSubtitleWhenTranscoding: false
-    };
-  
-    remoteLog('[Jellyfin] POST body (full DeviceProfile):', postBody);
-  
-    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
-      method: 'POST',
-      jsonBody: postBody
-    }).then(function (response) {
-      remoteLog('[Jellyfin] PlaybackInfo response:', response);
-      return response;
-    }).catch(function (err) {
-      remoteLog('[Jellyfin] PlaybackInfo error:', err);
-      throw err;
-    });
   }
 
   function mediaSourceId(itemId) {
