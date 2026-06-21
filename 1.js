@@ -55,11 +55,11 @@
   var currentAudioIndex = null;
   var currentSubtitleIndex = null;
 
-  // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
+  // --- Параметры транскодирования — уменьшаем битрейт, чтобы принудительно включить транскодирование ---
   var TRANSCODE_QUALITY = {
     maxWidth: 1920,
-    videoBitrate: 20000000,
-    maxStreamingBitrate: 80000000,
+    videoBitrate: 2000000,      // 2 Мбит/с (было 20 Мбит/с)
+    maxStreamingBitrate: 4000000, // 4 Мбит/с (было 80 Мбит/с)
     audioBitrate: 384000,
     h264Level: '51'
   };
@@ -94,7 +94,7 @@
     console.log.apply(console, args);
   }
 
-  // --- Вспомогательные функции (без изменений) ---
+  // --- Вспомогательные функции ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -532,12 +532,12 @@
         { Format: 'ass', Method: 'External' },
         { Format: 'subrip', Method: 'External' }
       ],
-      // Принудительно запрашиваем транскодирование, указывая несовместимый контейнер
+      // Принудительно запрашиваем транскодирование, указывая несовместимый контейнер и кодек
       DirectPlayProfiles: [
-        { Container: 'mp4', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'mp4', Type: 'Video', VideoCodec: 'vp9', AudioCodec: 'opus' }
       ],
       TranscodingProfiles: [
-        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
       MaxStreamingBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
       MaxStaticBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
@@ -551,12 +551,16 @@
       h264RangeType: 'SDR',
       TranscodingMaxAudioChannels: 6,
       EnableAudioVbrEncoding: true,
-      BreakOnNonKeyFrames: false
+      BreakOnNonKeyFrames: false,
+      // Добавляем параметры для принудительного транскодирования
+      EnableTranscoding: true,
+      TranscodeReasons: ['ContainerBitrateExceedsLimit', 'VideoCodecNotSupported']
     };
 
+    // Если запрошено транскодирование, явно устанавливаем флаги
     if (enableTranscoding) {
       postBody.EnableTranscoding = true;
-      postBody.TranscodeReasons = ['ContainerBitrateExceedsLimit'];
+      postBody.TranscodeReasons = ['ContainerBitrateExceedsLimit', 'VideoCodecNotSupported'];
     }
 
     if (mediaSourceId) {
@@ -621,6 +625,7 @@
             if (!src2) throw new Error('No MediaSource in second response');
             var url2 = src2.TranscodingUrl || src2.DirectStreamUrl;
             if (!url2) throw new Error('No TranscodingUrl in second response');
+            remoteLog('[Jellyfin] Second response TranscodingUrl:', url2);
             return { src: src2, info: info2, url: url2 };
           });
         } else {
