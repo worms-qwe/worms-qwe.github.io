@@ -533,9 +533,9 @@
     return [{ url: manualUrl, label: 'Subtitle' }];
   }
 
-  // === НОВАЯ fetchPlaybackInfoAndSaveStreams (GET + POST) ===
+  // === НОВАЯ fetchPlaybackInfoAndSaveStreams (GET + POST с правильными параметрами) ===
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-    // Сначала GET для получения метаданных дорожек
+    // Сначала GET для получения метаданных дорожек и MediaSourceId
     return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
       .then(function(getInfo) {
         if (!getInfo || !getInfo.MediaSources || !getInfo.MediaSources.length) {
@@ -575,31 +575,26 @@
           mediaSourceId: mediaSourceId
         };
 
-        // Теперь POST для получения DeliveryUrl
+        // Теперь POST с правильными параметрами
         var postBody = {
           UserId: userId,
+          MediaSourceId: mediaSourceId,
           StartTimeTicks: 0,
           IsPlayback: true,
           AutoOpenLiveStream: true,
-          DeviceProfile: {
-            MaxStreamingBitrate: 120000000,
-            MaxStaticBitrate: 100000000,
-            MusicStreamingTranscodingBitrate: 384000,
-            DirectPlayProfiles: [
-              { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
-              { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
-              { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
-            ],
-            TranscodingProfiles: [
-              { Container: 'ts', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 2, MinSegments: 1, BreakOnNonKeyFrames: false }
-            ],
-            SubtitleProfiles: [
-              { Format: "all", Method: "External" }
-            ],
-            CodecProfiles: [
-              { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline', IsRequired: false }] }
-            ]
-          }
+          AlwaysBurnInSubtitleWhenTranscoding: false,
+          SubtitleProfiles: [
+            { Format: 'ass', Method: 'External' },
+            { Format: 'subrip', Method: 'External' }
+          ],
+          // Если есть выбранный индекс субтитров, передаём его
+          SubtitleStreamIndex: subtitleIndex !== undefined ? subtitleIndex : undefined,
+          DirectPlayProfiles: [
+            { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+          ],
+          TranscodingProfiles: [
+            { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+          ]
         };
 
         return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
@@ -2572,13 +2567,10 @@
         }
         return Promise.resolve();
       }).then(function() {
-        // После получения данных (или если они уже есть), обновляем плеер-панель
         var saved = _savedStreams[itemId];
         if (!saved) return;
 
-        var tracks = [];
-        // Здесь могли бы быть аудиодорожки, но они уже есть в POST-ответе
-        // Для субтитров строим список из сохранённых данных
+        // Обновляем список субтитров в плеере
         if (saved.subtitleTracks && saved.subtitleTracks.length) {
           var subs = saved.subtitleTracks.map(function(t) {
             var sub = {
