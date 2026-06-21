@@ -519,6 +519,7 @@
     var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
     var mediaSourceId = opts.mediaSourceId;
+	var enableTranscoding = opts.enableTranscoding === true; // [FIX] новый параметр
 
     remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks });
 
@@ -533,11 +534,12 @@
         { Format: 'ass', Method: 'External' },
         { Format: 'subrip', Method: 'External' }
       ],
+      // [FIX] Изменяем DirectPlayProfiles, чтобы принудительно вызвать транскодирование
       DirectPlayProfiles: [
-        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'mp4', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
       TranscodingProfiles: [
-        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
       MaxStreamingBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
       MaxStaticBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
@@ -553,6 +555,13 @@
       EnableAudioVbrEncoding: true,
       BreakOnNonKeyFrames: false
     };
+	
+    // [FIX] Если запрошено транскодирование, добавляем флаг
+    if (enableTranscoding) {
+      postBody.EnableTranscoding = true;
+      // Можно добавить TranscodeReasons для надёжности
+      postBody.TranscodeReasons = ['ContainerBitrateExceedsLimit'];
+    }
 
     if (mediaSourceId) {
       postBody.MediaSourceId = mediaSourceId;
@@ -657,6 +666,7 @@
       audioStreamIndex: audioIdx,
       subtitleStreamIndex: subIdx,
       startTicks: startTicks
+	  enableTranscoding: true // [FIX] всегда запрашиваем транскодирование
     }).then(function (info) {
       var src = info.MediaSources && info.MediaSources[0];
       if (!src) throw new Error('No MediaSource');
