@@ -55,9 +55,9 @@
   var currentAudioIndex = null;
   var currentSubtitleIndex = null;
 
-  // --- Параметры транскодирования (фиксированное качество – HLS с несколькими битрейтами) ---
+  // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
   var TRANSCODE_QUALITY = {
-    maxWidth: 1920, // максимальная ширина, но HLS сам адаптируется
+    maxWidth: 1920,
     videoBitrate: 20000000,
     maxStreamingBitrate: 80000000,
     audioBitrate: 384000,
@@ -504,7 +504,6 @@
       TranscodingProfiles: [
         { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
-      // Параметры транскодирования (HLS с адаптивным битрейтом)
       MaxStreamingBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
       MaxStaticBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
       VideoBitrate: TRANSCODE_QUALITY.videoBitrate,
@@ -533,7 +532,6 @@
     });
   }
 
-  // --- Вспомогательная функция для получения MediaSourceId (из itemId) ---
   function mediaSourceId(itemId) {
     return String(itemId || '').replace(/-/g, '');
   }
@@ -546,7 +544,6 @@
   // --- Функция создания объекта для плеера (для внутреннего плеера с транскодированием) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
-    // Первый запрос без индексов, чтобы получить дефолтные дорожки
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         var src = info.MediaSources[0];
@@ -554,7 +551,6 @@
           throw new Error('No TranscodingUrl in PlaybackInfo response');
         }
         var streams = src.MediaStreams || [];
-        // Находим дефолтные аудио и субтитры
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
         currentAudioIndex = defAudio ? defAudio.Index : undefined;
@@ -578,7 +574,7 @@
       });
   }
 
-  // --- Функция обновления плеера при смене аудио/субтитров (и при смене качества – но качество переключается через HLS) ---
+  // --- Функция обновления плеера при смене аудио/субтитров (и при смене качества – качество переключается через HLS) ---
   function updatePlayerWithNewStreams(itemId, userId, audioIdx, subIdx, startTicks) {
     return fetchPlaybackInfo(itemId, userId, {
       audioStreamIndex: audioIdx,
@@ -589,7 +585,6 @@
       if (!src || !src.TranscodingUrl) {
         throw new Error('No TranscodingUrl');
       }
-      // Обновляем глобальные переменные
       currentPlaySessionId = info.PlaySessionId;
       currentMediaStreams = src.MediaStreams || [];
       if (audioIdx !== undefined) currentAudioIndex = audioIdx;
@@ -599,9 +594,7 @@
       var currentPlay = Lampa.Player.playdata();
       if (currentPlay) {
         var newPlay = Object.assign({}, currentPlay, { url: src.TranscodingUrl });
-        // Сохраняем позицию (startTicks уже учтён в запросе)
         newPlay.timeline = { time: startTicks / 10000000 };
-        // Закрываем и перезапускаем плеер
         Lampa.Player.close();
         Lampa.Player.play(newPlay);
       }
@@ -678,8 +671,6 @@
   }
 
   // --- Функции для работы с элементами (каталог, хаб, карточки) ---
-  // (эти функции остаются без изменений из оригинального плагина, но для полноты я их привожу)
-
   function tmdbFromItem(item) {
     if (!item || !item.ProviderIds) return null;
     var id = item.ProviderIds.Tmdb || item.ProviderIds.tmdb;
@@ -1667,7 +1658,7 @@
     });
   }
 
-  // --- Основные функции воспроизведения (переопределены) ---
+  // --- Основные функции воспроизведения ---
   function playRow(row, allRows) {
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
@@ -1704,14 +1695,17 @@
       });
   }
 
+  // Обёртка для обратной совместимости (используется в карточках и меню)
+  function playMediaRow(row) {
+    playRow(row);
+  }
+
   function playSingleItem(row, allRows) {
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
-      // Если используется внутренний плеер (с транскодированием) – используем PlaybackInfo
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
-            // Если есть плейлист, передаём его (но только заглушки, т.к. у нас динамический URL)
             if (allRows && allRows.length > 1) {
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
@@ -1725,7 +1719,6 @@
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
           });
       } else {
-        // Для внешнего плеера используем прямой стрим (старая логика)
         var opts = { userId: userId, startTicks: startTicks };
         var url = streamUrl(row.id, opts);
         var playObj = {
@@ -1763,7 +1756,7 @@
     if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
       parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
     }
-    parts.push('Static=true'); // для прямого стрима
+    parts.push('Static=true');
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
   }
 
@@ -1919,7 +1912,7 @@
     if (src && src !== IMG_PLACEHOLDER) $card.find('.card__img').attr('src', src);
   }
 
-  // --- Панель категорий (без изменений) ---
+  // --- Панель категорий ---
   function PanelComponent(object) {
     var self = this;
     var category = (object && object.category) || 'Movie';
