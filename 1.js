@@ -64,7 +64,7 @@
     h264Level: '51'
   };
 
-  // --- Вспомогательные функции (без изменений) ---
+  // --- Вспомогательные функции ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -546,10 +546,14 @@
     var itemId = row.id;
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
+        console.log('Jellyfin PlaybackInfo response:', info);
+
         var src = info.MediaSources[0];
         if (!src || !src.TranscodingUrl) {
+          console.error('No TranscodingUrl in PlaybackInfo response');
           throw new Error('No TranscodingUrl in PlaybackInfo response');
         }
+
         var streams = src.MediaStreams || [];
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
@@ -561,8 +565,8 @@
         currentPlaySessionId = info.PlaySessionId;
         currentMediaStreams = streams;
 
-        // Важно: TranscodingUrl может быть относительным, добавляем apiBase()
         var fullUrl = apiBase() + src.TranscodingUrl;
+        console.log('Jellyfin play URL:', fullUrl);
 
         var playObj = {
           title: row.title,
@@ -573,11 +577,12 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
+        console.log('Jellyfin playObj:', playObj);
         return playObj;
       });
   }
 
-  // --- Функция обновления плеера при смене аудио/субтитров (и при смене качества – качество переключается через HLS) ---
+  // --- Функция обновления плеера при смене аудио/субтитров ---
   function updatePlayerWithNewStreams(itemId, userId, audioIdx, subIdx, startTicks) {
     return fetchPlaybackInfo(itemId, userId, {
       audioStreamIndex: audioIdx,
@@ -609,6 +614,7 @@
   // --- Настройка дорожек и субтитров в плеере ---
   function setupTracksForJellyfin() {
     Lampa.Player.listener.follow('ready', function (data) {
+      console.log('Jellyfin Player ready event', data);
       if (!currentMediaStreams || !currentMediaStreams.length) return;
 
       var audioStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Audio'; });
@@ -1665,6 +1671,7 @@
 
   // --- Основные функции воспроизведения ---
   function playRow(row, allRows) {
+    console.log('Jellyfin playRow called', row, allRows);
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
@@ -1695,22 +1702,24 @@
         }
         playSingleItem(row, rows);
       })
-      .catch(function () {
+      .catch(function (e) {
+        console.error('Jellyfin playRow error:', e);
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
 
-  // Обёртка для обратной совместимости (используется в карточках и меню)
   function playMediaRow(row) {
     playRow(row);
   }
 
   function playSingleItem(row, allRows) {
+    console.log('Jellyfin playSingleItem', row, allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
+            console.log('Jellyfin about to call Lampa.Player.play with', playObj);
             if (allRows && allRows.length > 1) {
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
@@ -1720,7 +1729,7 @@
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
-            console.error('Jellyfin play error:', e);
+            console.error('Jellyfin buildPlayObject error:', e);
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
           });
       } else {
@@ -1735,12 +1744,12 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
+        console.log('Jellyfin external player playObj', playObj);
         Lampa.Player.play(playObj);
       }
     });
   }
 
-  // --- Старая функция streamUrl (для внешних плееров) ---
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
