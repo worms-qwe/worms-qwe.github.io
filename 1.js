@@ -55,11 +55,11 @@
   var currentAudioIndex = null;
   var currentSubtitleIndex = null;
 
-  // --- Параметры транскодирования — уменьшаем битрейт, чтобы принудительно включить транскодирование ---
+  // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
   var TRANSCODE_QUALITY = {
     maxWidth: 1920,
-    videoBitrate: 2000000,      // 2 Мбит/с (было 20 Мбит/с)
-    maxStreamingBitrate: 4000000, // 4 Мбит/с (было 80 Мбит/с)
+    videoBitrate: 20000000,
+    maxStreamingBitrate: 80000000,
     audioBitrate: 384000,
     h264Level: '51'
   };
@@ -94,7 +94,7 @@
     console.log.apply(console, args);
   }
 
-  // --- Вспомогательные функции ---
+  // --- Вспомогательные функции (без изменений) ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -513,68 +513,77 @@
   // --- Функция для запроса PlaybackInfo (POST) с возможностью принудительного транскодирования ---
   function fetchPlaybackInfo(itemId, userId, opts) {
     opts = opts || {};
-    var audioIndex = opts.audioStreamIndex;
-    var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
-    var mediaSourceId = opts.mediaSourceId;
-    var enableTranscoding = opts.enableTranscoding === true;
-
-    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks, enableTranscoding });
-
+  
+    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
+  
     var postBody = {
       UserId: userId,
-      DeviceId: getDeviceId(),
+      //DeviceId: getDeviceId(),
       StartTimeTicks: startTicks,
       IsPlayback: true,
       AutoOpenLiveStream: true,
+      MaxStreamingBitrate: 815559111,
       AlwaysBurnInSubtitleWhenTranscoding: false,
-      SubtitleProfiles: [
-        { Format: 'ass', Method: 'External' },
-        { Format: 'subrip', Method: 'External' }
-      ],
-      // Принудительно запрашиваем транскодирование, указывая несовместимый контейнер и кодек
-      DirectPlayProfiles: [
-        { Container: 'mp4', Type: 'Video', VideoCodec: 'vp9', AudioCodec: 'opus' }
-      ],
-      TranscodingProfiles: [
-        { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
-      ],
-      MaxStreamingBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
-      MaxStaticBitrate: TRANSCODE_QUALITY.maxStreamingBitrate,
-      VideoBitrate: TRANSCODE_QUALITY.videoBitrate,
-      AudioBitrate: TRANSCODE_QUALITY.audioBitrate,
-      MaxWidth: TRANSCODE_QUALITY.maxWidth,
-      h264Profile: 'high,main,baseline,constrainedbaseline',
-      h264Level: TRANSCODE_QUALITY.h264Level,
-      h264VideoBitDepth: 8,
-      h264Deinterlace: true,
-      h264RangeType: 'SDR',
-      TranscodingMaxAudioChannels: 6,
-      EnableAudioVbrEncoding: true,
-      BreakOnNonKeyFrames: false,
-      // Добавляем параметры для принудительного транскодирования
-      EnableTranscoding: true,
-      TranscodeReasons: ['ContainerBitrateExceedsLimit', 'VideoCodecNotSupported']
+      DeviceProfile: {
+        "MaxStreamingBitrate": 120000000,
+        "MaxStaticBitrate": 100000000,
+        "MusicStreamingTranscodingBitrate": 384000,
+        "DirectPlayProfiles": [
+          { "Container": "webm", "Type": "Video", "VideoCodec": "vp8,vp9,av1", "AudioCodec": "vorbis,opus" },
+          { "Container": "mp4,m4v", "Type": "Video", "VideoCodec": "h264,hevc,vp9,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
+          { "Container": "mkv", "Type": "Video", "VideoCodec": "h264,hevc,vp9,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
+          { "Container": "mov", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
+          { "Container": "opus", "Type": "Audio" },
+          { "Container": "webm", "AudioCodec": "opus", "Type": "Audio" },
+          { "Container": "ts", "AudioCodec": "mp3", "Type": "Audio" },
+          { "Container": "mp3", "Type": "Audio" },
+          { "Container": "aac", "Type": "Audio" },
+          { "Container": "m4a", "AudioCodec": "aac", "Type": "Audio" },
+          { "Container": "m4b", "AudioCodec": "aac", "Type": "Audio" },
+          { "Container": "flac", "Type": "Audio" },
+          { "Container": "webma", "Type": "Audio" },
+          { "Container": "webm", "AudioCodec": "webma", "Type": "Audio" },
+          { "Container": "wav", "Type": "Audio" },
+          { "Container": "ogg", "Type": "Audio" },
+          { "Container": "hls", "Type": "Video", "VideoCodec": "av1,hevc,h264,vp9", "AudioCodec": "aac,mp2,opus,flac" },
+          { "Container": "hls", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac,mp3,mp2" }
+        ],
+        "TranscodingProfiles": [
+          { "Container": "mp4", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false, "EnableAudioVbrEncoding": true },
+          { "Container": "aac", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "mp3", "Type": "Audio", "AudioCodec": "mp3", "Context": "Streaming", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "opus", "Type": "Audio", "AudioCodec": "opus", "Context": "Streaming", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "wav", "Type": "Audio", "AudioCodec": "wav", "Context": "Streaming", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "opus", "Type": "Audio", "AudioCodec": "opus", "Context": "Static", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "mp3", "Type": "Audio", "AudioCodec": "mp3", "Context": "Static", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "aac", "Type": "Audio", "AudioCodec": "aac", "Context": "Static", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "wav", "Type": "Audio", "AudioCodec": "wav", "Context": "Static", "Protocol": "http", "MaxAudioChannels": "2" },
+          { "Container": "mp4", "Type": "Video", "AudioCodec": "aac,mp2,opus,flac", "VideoCodec": "av1,hevc,h264,vp9", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false },
+          { "Container": "ts", "Type": "Video", "AudioCodec": "aac,mp3,mp2", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false }
+        ],
+        "ContainerProfiles": [],
+        "CodecProfiles": [
+          { "Type": "VideoAudio", "Codec": "aac", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
+          { "Type": "VideoAudio", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
+          { "Type": "Video", "Codec": "h264", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "high|main|baseline|constrained baseline|high 10", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false }, { "Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false } ] },
+          { "Type": "Video", "Codec": "hevc", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main|main 10", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HDR10Plus|HLG", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "186", "IsRequired": false }, { "Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false } ] },
+          { "Type": "Video", "Codec": "vp9", "Conditions": [ { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HDR10Plus|HLG", "IsRequired": false } ] },
+          { "Type": "Video", "Codec": "av1", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HDR10Plus|HLG", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "19", "IsRequired": false } ] }
+        ],
+        "SubtitleProfiles": [
+          { "Format": "vtt", "Method": "External" },
+          { "Format": "ass", "Method": "External" },
+          { "Format": "ssa", "Method": "External" }
+        ],
+        "ResponseProfiles": [
+          { "Type": "Video", "Container": "m4v", "MimeType": "video/mp4" }
+        ]
+      }
     };
-
-    // Если запрошено транскодирование, явно устанавливаем флаги
-    if (enableTranscoding) {
-      postBody.EnableTranscoding = true;
-      postBody.TranscodeReasons = ['ContainerBitrateExceedsLimit', 'VideoCodecNotSupported'];
-    }
-
-    if (mediaSourceId) {
-      postBody.MediaSourceId = mediaSourceId;
-    }
-    if (audioIndex !== undefined && audioIndex !== null) {
-      postBody.AudioStreamIndex = audioIndex;
-    }
-    if (subIndex !== undefined && subIndex !== null) {
-      postBody.SubtitleStreamIndex = subIndex;
-    }
-
-    remoteLog('[Jellyfin] POST body:', postBody);
-
+  
+    remoteLog('[Jellyfin] POST body (full DeviceProfile):', postBody);
+  
     return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
       method: 'POST',
       jsonBody: postBody
@@ -625,7 +634,6 @@
             if (!src2) throw new Error('No MediaSource in second response');
             var url2 = src2.TranscodingUrl || src2.DirectStreamUrl;
             if (!url2) throw new Error('No TranscodingUrl in second response');
-            remoteLog('[Jellyfin] Second response TranscodingUrl:', url2);
             return { src: src2, info: info2, url: url2 };
           });
         } else {
