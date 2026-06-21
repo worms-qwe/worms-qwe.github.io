@@ -1709,6 +1709,10 @@
 	  console.error('startTicks', startTicks);
       if (transcodingEnabled()) {
 		console.error('transcodingEnabled', 'true');
+		console.error('row', row);
+		console.error('userId', userId);
+		console.error('startTicks', startTicks);
+		console.error('buildPlayObject', buildPlayObject(row, userId, startTicks));
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
 			console.error('1', '');
