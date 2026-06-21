@@ -1712,6 +1712,7 @@
               });
               Lampa.Player.playlist(playlist);
             }
+		        console.error('playObj1', playObj);
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
@@ -1730,6 +1731,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
+		    console.error('playObj2', playObj);
         Lampa.Player.play(playObj);
       }
     });
