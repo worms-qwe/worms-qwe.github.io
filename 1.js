@@ -517,12 +517,15 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
+  // === Функция получения субтитров для плеера (один субтитр по индексу) ===
   function getSubtitlesArray(itemId, subtitleIndex) {
     var saved = _savedStreams[itemId];
     if (!saved) return [];
+    var track = saved.subtitleTracks ? saved.subtitleTracks.find(function(t) { return t.index === subtitleIndex; }) : null;
+    if (track && track.url) return [{ url: track.url, label: track.displayTitle || track.language || 'Subtitle' }];
+    // Fallback: если нет в subtitleTracks, пытаемся по старым ключам
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
     if (url) return [{ url: url, label: 'Subtitle' }];
-    // Если URL почему-то нет, формируем вручную (запасной вариант)
     var msId = saved.mediaSourceId || mediaSourceId(itemId);
     var base = apiBase();
     var key = apiKey();
@@ -530,105 +533,125 @@
     return [{ url: manualUrl, label: 'Subtitle' }];
   }
 
-  // === ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ DEVICE PROFILE ===
-  function getDeviceProfile() {
-    return {
-      MaxStreamingBitrate: 120000000,
-      MaxStaticBitrate: 100000000,
-      MusicStreamingTranscodingBitrate: 384000,
-      DirectPlayProfiles: [
-        { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
-        { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
-        { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
-      ],
-      TranscodingProfiles: [
-        { Container: 'ts', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 2, MinSegments: 1, BreakOnNonKeyFrames: false }
-      ],
-      SubtitleProfiles: [
-        { Format: 'vtt', Method: 'External' },
-        { Format: 'ass', Method: 'External' },
-        { Format: 'ssa', Method: 'External' },
-        { Format: 'srt', Method: 'External' },
-        { Format: 'subrip', Method: 'External' },
-        { Format: 'pgs', Method: 'External' },
-        { Format: 'dvdsub', Method: 'External' }
-      ],
-      CodecProfiles: [
-        { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline', IsRequired: false }] }
-      ]
-    };
-  }
-
-  // === ИСПРАВЛЕННАЯ fetchPlaybackInfoAndSaveStreams (POST с параметром в URL) ===
+  // === НОВАЯ fetchPlaybackInfoAndSaveStreams (GET + POST) ===
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
-    var body = {
-      UserId: userId,
-      StartTimeTicks: 0,
-      IsPlayback: true,
-      AutoOpenLiveStream: true,
-      EnableAllSubtitleTracks: true, // в теле
-      DeviceProfile: getDeviceProfile()
-    };
+    // Сначала GET для получения метаданных дорожек
+    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo?UserId=' + encodeURIComponent(userId) + '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true')
+      .then(function(getInfo) {
+        if (!getInfo || !getInfo.MediaSources || !getInfo.MediaSources.length) {
+          throw new Error('No media sources from GET');
+        }
+        var source = getInfo.MediaSources[0];
+        var streams = source.MediaStreams || [];
 
-    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo?EnableAllSubtitleTracks=true', {
-      method: 'POST',
-      jsonBody: body,
-      dataType: 'json'
-    })
-      .then(function(info) {
-        if (info && info.MediaSources && info.MediaSources.length) {
-          var source = info.MediaSources[0];
-          var streams = source.MediaStreams || [];
-          console.error('streams', streams);
-          var zzzzz = streams.find(function(s) { return s.Type === 'Subtitle'; });
-          console.error('subs', zzzzz})
+        // Извлекаем аудио и субтитры с метаданными
+        var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
+        var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
 
-          var audioIndex, subtitleIndex;
+        // Определяем индексы по умолчанию
+        var defaultAudio = audioStreams.find(function(s) { return s.IsDefault === true; });
+        var defaultSub = subStreams.find(function(s) { return s.IsDefault === true; });
+        var audioIndex = defaultAudio ? defaultAudio.Index : (audioStreams.length ? audioStreams[0].Index : undefined);
+        var subtitleIndex = defaultSub ? defaultSub.Index : (subStreams.length ? subStreams[0].Index : undefined);
+
+        // Сохраняем метаданные для всех субтитров (без URL)
+        var subtitleMeta = subStreams.map(function(s) {
+          return {
+            index: s.Index,
+            language: s.Language || '',
+            title: s.Title || '',
+            displayTitle: s.DisplayTitle || s.Language || ('Subtitle ' + s.Index),
+            isDefault: s.IsDefault || false
+          };
+        });
+
+        var mediaSourceId = source.Id || mediaSourceId(itemId);
+
+        // Сохраняем временные данные
+        var tempData = {
+          audioIndex: audioIndex,
+          subtitleIndex: subtitleIndex,
+          subtitleMeta: subtitleMeta,
+          mediaSourceId: mediaSourceId
+        };
+
+        // Теперь POST для получения DeliveryUrl
+        var postBody = {
+          UserId: userId,
+          StartTimeTicks: 0,
+          IsPlayback: true,
+          AutoOpenLiveStream: true,
+          DeviceProfile: {
+            MaxStreamingBitrate: 120000000,
+            MaxStaticBitrate: 100000000,
+            MusicStreamingTranscodingBitrate: 384000,
+            DirectPlayProfiles: [
+              { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
+              { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,hevc', AudioCodec: 'aac,mp3' },
+              { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
+            ],
+            TranscodingProfiles: [
+              { Container: 'ts', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 2, MinSegments: 1, BreakOnNonKeyFrames: false }
+            ],
+            SubtitleProfiles: [
+              { Format: "all", Method: "External" }
+            ],
+            CodecProfiles: [
+              { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline', IsRequired: false }] }
+            ]
+          }
+        };
+
+        return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
+          method: 'POST',
+          jsonBody: postBody,
+          dataType: 'json'
+        }).then(function(postInfo) {
+          if (!postInfo || !postInfo.MediaSources || !postInfo.MediaSources.length) {
+            throw new Error('No media sources from POST');
+          }
+          var postSource = postInfo.MediaSources[0];
+          var postStreams = postSource.MediaStreams || [];
+
+          // Собираем DeliveryUrl для субтитров
           var subtitleUrls = {};
-          var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
-          if (defaultAudio) {
-            audioIndex = defaultAudio.Index;
-          } else {
-            var firstAudio = streams.find(function(s) { return s.Type === 'Audio'; });
-            audioIndex = firstAudio ? firstAudio.Index : undefined;
-          }
-
-          var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
-          if (defaultSub) {
-            subtitleIndex = defaultSub.Index;
-          } else {
-            var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
-            subtitleIndex = firstSub ? firstSub.Index : undefined;
-          }
-
-          var mediaSourceId = source.Id || mediaSourceId(itemId);
-
-          // Добавляем все субтитры, даже если нет DeliveryUrl
-          streams.forEach(function(stream) {
-            if (stream.Type === 'Subtitle') {
-              var url;
-              if (stream.DeliveryUrl) {
-                url = apiBase() + stream.DeliveryUrl;
-              } else {
-                url = apiBase() + '/Videos/' + encodeURIComponent(itemId) + '/' + encodeURIComponent(mediaSourceId) + '/Subtitles/' + stream.Index + '/stream.vtt?api_key=' + encodeURIComponent(apiKey());
-              }
-              subtitleUrls[stream.Index] = url;
+          postStreams.forEach(function(s) {
+            if (s.Type === 'Subtitle' && s.DeliveryUrl) {
+              subtitleUrls[s.Index] = apiBase() + s.DeliveryUrl;
             }
           });
 
-          if (audioIndex !== undefined) {
-            _savedStreams[itemId] = {
-              audio: audioIndex,
-              subtitle: subtitleIndex,
-              subtitleUrls: subtitleUrls,
-              mediaSourceId: mediaSourceId
+          // Формируем финальный список субтитров с URL
+          var subtitleTracks = tempData.subtitleMeta.map(function(meta) {
+            var url = subtitleUrls[meta.index] || apiBase() + '/Videos/' + encodeURIComponent(itemId) + '/' + encodeURIComponent(tempData.mediaSourceId) + '/Subtitles/' + meta.index + '/stream.vtt?api_key=' + encodeURIComponent(apiKey());
+            return {
+              index: meta.index,
+              language: meta.language,
+              title: meta.title,
+              displayTitle: meta.displayTitle,
+              isDefault: meta.isDefault,
+              url: url
             };
-          }
-        }
-        return info;
+          });
+
+          // Сохраняем в _savedStreams
+          _savedStreams[itemId] = {
+            audio: tempData.audioIndex,
+            subtitle: tempData.subtitleIndex,
+            subtitleTracks: subtitleTracks,
+            mediaSourceId: tempData.mediaSourceId
+          };
+
+          // Для обратной совместимости сохраняем subtitleUrls
+          var urls = {};
+          subtitleTracks.forEach(function(t) { urls[t.index] = t.url; });
+          _savedStreams[itemId].subtitleUrls = urls;
+
+          return postInfo;
+        });
       })
       .catch(function(e) {
-        console.error('Failed to fetch PlaybackInfo:', e);
+        console.error('Failed to fetch PlaybackInfo (GET+POST):', e);
       });
   }
 
@@ -2478,7 +2501,7 @@
       if (_savedStreams[currentMovie.Id]) {
         _savedStreams[currentMovie.Id].audio = index;
       } else {
-        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex, subtitleUrls: {} };
+        _savedStreams[currentMovie.Id] = { audio: index, subtitle: currentSubtitleIndex, subtitleTracks: [] };
       }
       var opts = {
         userId: currentUserId,
@@ -2510,7 +2533,7 @@
       if (_savedStreams[currentMovie.Id]) {
         _savedStreams[currentMovie.Id].subtitle = index;
       } else {
-        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index, subtitleUrls: {} };
+        _savedStreams[currentMovie.Id] = { audio: currentAudioIndex, subtitle: index, subtitleTracks: [] };
       }
       var opts = {
         userId: currentUserId,
@@ -2549,84 +2572,34 @@
         }
         return Promise.resolve();
       }).then(function() {
-        return jfHttp('/Items/' + encodeURIComponent(itemId) +
-                  '/PlaybackInfo?UserId=' + encodeURIComponent(currentUserId) +
-                  '&StartTimeTicks=0&IsPlayback=true&AutoOpenLiveStream=true');
-      }).then(function(info) {
-        if (!info || !info.MediaSources || !info.MediaSources.length) return;
-        var source = info.MediaSources[0];
-        if (source) {
-          currentMediaSourceId = source.Id;
-          currentPlaySessionId = info.PlaySessionId || null;
-        }
-        var streams = source.MediaStreams || [];
-        var audioStreams = streams.filter(function(s) { return s.Type === 'Audio'; });
-        var subStreams = streams.filter(function(s) { return s.Type === 'Subtitle'; });
-
+        // После получения данных (или если они уже есть), обновляем плеер-панель
         var saved = _savedStreams[itemId];
-        var defaultAudio = saved ? saved.audio : undefined;
-        var defaultSub = saved ? saved.subtitle : undefined;
-
-        if (defaultAudio === undefined) {
-          var defAudio = audioStreams.find(function(s) { return s.IsDefault; });
-          defaultAudio = defAudio ? defAudio.Index : (audioStreams.length ? audioStreams[0].Index : undefined);
-        }
-        if (defaultSub === undefined) {
-          var defSub = subStreams.find(function(s) { return s.IsDefault; });
-          defaultSub = defSub ? defSub.Index : (subStreams.length ? subStreams[0].Index : undefined);
-        }
-
-        currentAudioIndex = defaultAudio;
-        currentSubtitleIndex = defaultSub;
+        if (!saved) return;
 
         var tracks = [];
-        audioStreams.forEach(function(stream, i) {
-          var track = {
-            index: stream.Index,
-            language: stream.Language || '',
-            label: stream.DisplayTitle || stream.Language || ('Audio ' + (i+1)),
-            selected: (stream.Index === defaultAudio)
-          };
-          Object.defineProperty(track, "enabled", {
-            set: function(v) {
-              if (v) {
-                switchAudio(stream.Index);
-                tracks.forEach(function(t) { t.selected = false; });
-                track.selected = true;
-                Lampa.PlayerPanel.setTracks(tracks);
-              }
-            },
-            get: function() { return track.selected; }
+        // Здесь могли бы быть аудиодорожки, но они уже есть в POST-ответе
+        // Для субтитров строим список из сохранённых данных
+        if (saved.subtitleTracks && saved.subtitleTracks.length) {
+          var subs = saved.subtitleTracks.map(function(t) {
+            var sub = {
+              index: t.index,
+              language: t.language || '',
+              label: t.displayTitle || t.language || ('Subtitle ' + t.index),
+              selected: (t.index === saved.subtitle)
+            };
+            Object.defineProperty(sub, "mode", {
+              set: function(v) {
+                if (v === 'showing') {
+                  switchSubtitle(t.index);
+                  subs.forEach(function(s) { s.selected = false; });
+                  sub.selected = true;
+                  Lampa.PlayerPanel.setSubs(subs);
+                }
+              },
+              get: function() { return sub.selected ? 'showing' : 'disabled'; }
+            });
+            return sub;
           });
-          tracks.push(track);
-        });
-
-        var subs = [];
-        subStreams.forEach(function(stream, i) {
-          var sub = {
-            index: stream.Index,
-            language: stream.Language || '',
-            label: stream.DisplayTitle || stream.Language || ('Subtitle ' + (i+1)),
-            selected: (stream.Index === defaultSub)
-          };
-          Object.defineProperty(sub, "mode", {
-            set: function(v) {
-              if (v === 'showing') {
-                switchSubtitle(stream.Index);
-                subs.forEach(function(s) { s.selected = false; });
-                sub.selected = true;
-                Lampa.PlayerPanel.setSubs(subs);
-              }
-            },
-            get: function() { return sub.selected ? 'showing' : 'disabled'; }
-          });
-          subs.push(sub);
-        });
-
-        if (tracks.length) {
-          Lampa.PlayerPanel.setTracks(tracks);
-        }
-        if (subs.length) {
           Lampa.PlayerPanel.setSubs(subs);
         }
       }).catch(function(e) {
