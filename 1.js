@@ -481,11 +481,17 @@
 
   // --- Функция для запроса PlaybackInfo (POST) ---
   function fetchPlaybackInfo(itemId, userId, opts) {
+	console.error('', '---fetchPlaybackInfo---');
     opts = opts || {};
     var mediaSourceId = opts.mediaSourceId || mediaSourceId(itemId);
     var audioIndex = opts.audioStreamIndex;
     var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
+	console.error('opts', opts);
+	console.error('mediaSourceId', mediaSourceId);
+	console.error('audioIndex', audioIndex);
+	console.error('subIndex', subIndex);
+	console.error('startTicks', startTicks);
 
     var postBody = {
       UserId: userId,
