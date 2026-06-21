@@ -1712,8 +1712,10 @@
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
 			console.error('1', '');
+			console.error('allRows', allRows);
+			console.error('allRows.length', allRows.length);
+			console.error('otvet', allRows && allRows.length);
             if (allRows && allRows.length > 1) {
-			  console.error('allRows.length', allRows.length);
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
               });
