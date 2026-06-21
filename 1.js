@@ -78,7 +78,6 @@
       return String(arg);
     }).join(' ');
 
-    // Отправляем на сервер, если указан URL
     var logUrl = storageStr('LogUrl', '');
     if (logUrl) {
       try {
@@ -92,7 +91,6 @@
       } catch (e) {}
     }
 
-    // Дублируем в консоль
     console.log.apply(console, args);
   }
 
@@ -512,16 +510,16 @@
     return usesLampaNativePlayer();
   }
 
-  // --- Функция для запроса PlaybackInfo (POST) с логами ---
+  // --- Функция для запроса PlaybackInfo (POST) с возможностью принудительного транскодирования ---
   function fetchPlaybackInfo(itemId, userId, opts) {
     opts = opts || {};
     var audioIndex = opts.audioStreamIndex;
     var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
     var mediaSourceId = opts.mediaSourceId;
-	var enableTranscoding = opts.enableTranscoding === true; // [FIX] новый параметр
+    var enableTranscoding = opts.enableTranscoding === true;
 
-    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks });
+    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks, enableTranscoding });
 
     var postBody = {
       UserId: userId,
@@ -534,7 +532,7 @@
         { Format: 'ass', Method: 'External' },
         { Format: 'subrip', Method: 'External' }
       ],
-      // [FIX] Изменяем DirectPlayProfiles, чтобы принудительно вызвать транскодирование
+      // Принудительно запрашиваем транскодирование, указывая несовместимый контейнер
       DirectPlayProfiles: [
         { Container: 'mp4', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
       ],
@@ -555,11 +553,9 @@
       EnableAudioVbrEncoding: true,
       BreakOnNonKeyFrames: false
     };
-	
-    // [FIX] Если запрошено транскодирование, добавляем флаг
+
     if (enableTranscoding) {
       postBody.EnableTranscoding = true;
-      // Можно добавить TranscodeReasons для надёжности
       postBody.TranscodeReasons = ['ContainerBitrateExceedsLimit'];
     }
 
@@ -596,44 +592,50 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // --- Функция создания объекта для плеера (с fallback) ---
+  // --- Функция создания объекта для плеера (с принудительным транскодированием) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
     remoteLog('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
 
+    // Первый запрос без MediaSourceId
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         remoteLog('[Jellyfin] buildPlayObject got info', info);
         var sources = info.MediaSources || [];
-        // Ищем источник с поддержкой транскодирования
-        var src = sources.find(function (s) { return s.SupportsTranscoding === true; }) || sources[0];
+        var src = sources[0];
         if (!src) {
-          throw new Error('No suitable MediaSource found');
+          throw new Error('No MediaSource found');
         }
-        remoteLog('[Jellyfin] Selected source:', src);
 
-        var fullUrl = null;
-        if (src.TranscodingUrl) {
-          var rawUrl = src.TranscodingUrl;
-          var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-          fullUrl = apiBase() + fixedUrl;
-          remoteLog('[Jellyfin] Using TranscodingUrl:', fullUrl);
-        } else if (src.DirectStreamUrl) {
-          var rawDirect = src.DirectStreamUrl;
-          var fixedDirect = rawDirect.replace(/\\u0026/g, '&');
-          fullUrl = apiBase() + fixedDirect;
-          remoteLog('[Jellyfin] Using DirectStreamUrl:', fullUrl);
+        var transcodingUrl = src.TranscodingUrl || src.DirectStreamUrl;
+
+        // Если нет TranscodingUrl, делаем второй запрос с MediaSourceId и принудительным транскодированием
+        if (!transcodingUrl) {
+          remoteLog('[Jellyfin] No TranscodingUrl, requesting with MediaSourceId and enableTranscoding=true');
+          return fetchPlaybackInfo(itemId, userId, {
+            mediaSourceId: src.Id,
+            startTicks: startTicks,
+            enableTranscoding: true
+          }).then(function (info2) {
+            var src2 = info2.MediaSources && info2.MediaSources[0];
+            if (!src2) throw new Error('No MediaSource in second response');
+            var url2 = src2.TranscodingUrl || src2.DirectStreamUrl;
+            if (!url2) throw new Error('No TranscodingUrl in second response');
+            return { src: src2, info: info2, url: url2 };
+          });
         } else {
-          remoteLog('[Jellyfin] No TranscodingUrl or DirectStreamUrl, using fallback streamUrl');
-          fullUrl = streamUrl(itemId, { userId: userId, startTicks: startTicks, mediaSourceId: src.Id });
-          remoteLog('[Jellyfin] Fallback URL:', fullUrl);
+          return { src: src, info: info, url: transcodingUrl };
         }
+      })
+      .then(function (result) {
+        var src = result.src;
+        var info = result.info;
+        var rawUrl = result.url;
 
-        if (!fullUrl) {
-          throw new Error('Could not generate playback URL');
-        }
+        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+        var fullUrl = apiBase() + fixedUrl;
+        remoteLog('[Jellyfin] Final URL:', fullUrl);
 
-        // Сохраняем глобальные данные
         var streams = src.MediaStreams || [];
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
@@ -665,24 +667,15 @@
       mediaSourceId: currentMediaSourceId,
       audioStreamIndex: audioIdx,
       subtitleStreamIndex: subIdx,
-      startTicks: startTicks
-	  enableTranscoding: true // [FIX] всегда запрашиваем транскодирование
+      startTicks: startTicks,
+      enableTranscoding: true
     }).then(function (info) {
       var src = info.MediaSources && info.MediaSources[0];
       if (!src) throw new Error('No MediaSource');
-      var fullUrl = null;
-      if (src.TranscodingUrl) {
-        var rawUrl = src.TranscodingUrl;
-        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-        fullUrl = apiBase() + fixedUrl;
-      } else if (src.DirectStreamUrl) {
-        var rawDirect = src.DirectStreamUrl;
-        var fixedDirect = rawDirect.replace(/\\u0026/g, '&');
-        fullUrl = apiBase() + fixedDirect;
-      } else {
-        fullUrl = streamUrl(itemId, { userId: userId, startTicks: startTicks, mediaSourceId: src.Id });
-      }
-      if (!fullUrl) throw new Error('No URL');
+      var rawUrl = src.TranscodingUrl || src.DirectStreamUrl;
+      if (!rawUrl) throw new Error('No URL');
+      var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+      var fullUrl = apiBase() + fixedUrl;
 
       currentPlaySessionId = info.PlaySessionId;
       currentMediaStreams = src.MediaStreams || [];
