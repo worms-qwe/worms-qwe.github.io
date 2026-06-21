@@ -481,13 +481,7 @@
 
   // --- Функция для запроса PlaybackInfo (POST) ---
   function fetchPlaybackInfo(itemId, userId, opts) {
-	console.error('opts', opts);
     opts = opts || {};
-	console.error('', '---fetchPlaybackInfo---');
-	console.error('mediaSourceId', opts.mediaSourceId);
-	console.error('audioIndex', opts.audioStreamIndex);
-	console.error('subIndex', opts.subtitleStreamIndex);
-	console.error('startTicks', opts.startTicks);
     var mediaSourceId = opts.mediaSourceId || mediaSourceId(itemId);
     var audioIndex = opts.audioStreamIndex;
     var subIndex = opts.subtitleStreamIndex;
@@ -550,12 +544,9 @@
   // --- Функция создания объекта для плеера (для внутреннего плеера с транскодированием) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
-	console.error('', '---buildPlayObject---');
-	console.error('itemId', itemId);
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         var src = info.MediaSources[0];
-		console.error('info.MediaSources[0]', info.MediaSources[0]);
         if (!src || !src.TranscodingUrl) {
           throw new Error('No TranscodingUrl in PlaybackInfo response');
         }
@@ -570,9 +561,12 @@
         currentPlaySessionId = info.PlaySessionId;
         currentMediaStreams = streams;
 
+        // Важно: TranscodingUrl может быть относительным, добавляем apiBase()
+        var fullUrl = apiBase() + src.TranscodingUrl;
+
         var playObj = {
           title: row.title,
-          url: src.TranscodingUrl,
+          url: fullUrl,
           movie: row.raw,
           timeline: { time: startTicks / 10000000 }
         };
@@ -600,12 +594,13 @@
       if (subIdx !== undefined) currentSubtitleIndex = subIdx;
       currentMediaSourceId = src.Id;
 
+      var fullUrl = apiBase() + src.TranscodingUrl;
+
       var currentPlay = Lampa.Player.playdata();
       if (currentPlay) {
-        var newPlay = Object.assign({}, currentPlay, { url: src.TranscodingUrl });
+        var newPlay = Object.assign({}, currentPlay, { url: fullUrl });
         newPlay.timeline = { time: startTicks / 10000000 };
         Lampa.Player.close();
-		console.error('newPlay', newPlay);
         Lampa.Player.play(newPlay);
       }
     });
@@ -1711,30 +1706,17 @@
   }
 
   function playSingleItem(row, allRows) {
-	console.error('row', row);
-	console.error('allRows', allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
-	  console.error('startTicks', startTicks);
       if (transcodingEnabled()) {
-		console.error('transcodingEnabled', 'true');
-		console.error('row', row);
-		console.error('userId', userId);
-		console.error('startTicks', startTicks);
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
-			console.error('1', '');
-			console.error('allRows', allRows);
-			console.error('allRows.length', allRows.length);
-			console.error('otvet', allRows && allRows.length);
             if (allRows && allRows.length > 1) {
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
               });
               Lampa.Player.playlist(playlist);
-			  console.error('playlist', playlist);
             }
-			console.error('playObj1', playObj);
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
@@ -1753,7 +1735,6 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-		console.error('playObj2', playObj);
         Lampa.Player.play(playObj);
       }
     });
