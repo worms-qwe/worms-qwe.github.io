@@ -579,6 +579,7 @@
         if (info && info.MediaSources && info.MediaSources.length) {
           var source = info.MediaSources[0];
           var streams = source.MediaStreams || [];
+          console.error('streams', streams);
 
           var audioIndex, subtitleIndex;
           var subtitleUrls = {};
