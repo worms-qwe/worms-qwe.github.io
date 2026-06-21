@@ -481,17 +481,17 @@
 
   // --- Функция для запроса PlaybackInfo (POST) ---
   function fetchPlaybackInfo(itemId, userId, opts) {
-	console.error('', '---fetchPlaybackInfo---');
+	console.error('opts', opts);
     opts = opts || {};
+	console.error('', '---fetchPlaybackInfo---');
+	console.error('mediaSourceId', opts.mediaSourceId);
+	console.error('audioIndex', opts.audioStreamIndex);
+	console.error('subIndex', opts.subtitleStreamIndex);
+	console.error('startTicks', opts.startTicks);
     var mediaSourceId = opts.mediaSourceId || mediaSourceId(itemId);
     var audioIndex = opts.audioStreamIndex;
     var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
-	console.error('opts', opts);
-	console.error('mediaSourceId', mediaSourceId);
-	console.error('audioIndex', audioIndex);
-	console.error('subIndex', subIndex);
-	console.error('startTicks', startTicks);
 
     var postBody = {
       UserId: userId,
@@ -552,7 +552,6 @@
     var itemId = row.id;
 	console.error('', '---buildPlayObject---');
 	console.error('itemId', itemId);
-	console.error('fetchPlaybackInfo', fetchPlaybackInfo(itemId, userId, { startTicks: startTicks }) );
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         var src = info.MediaSources[0];
@@ -1722,7 +1721,6 @@
 		console.error('row', row);
 		console.error('userId', userId);
 		console.error('startTicks', startTicks);
-		console.error('buildPlayObject', buildPlayObject(row, userId, startTicks));
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
 			console.error('1', '');
