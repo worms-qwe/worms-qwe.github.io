@@ -472,34 +472,34 @@
       audioBitrate: 384000,
       h264Level: '42',
     },
-    //'1080p': {
-    //  maxWidth: 1920,
-    //  videoBitrate: 20000000,
-    //  maxStreamingBitrate: 80000000,
-    //  audioBitrate: 384000,
-    //  h264Level: '51',
-    //},
-    //'1440p': {
-    //  maxWidth: 2560,
-    //  videoBitrate: 35000000,
-    //  maxStreamingBitrate: 100000000,
-    //  audioBitrate: 384000,
-    //  h264Level: '51',
-    //},
-    //'2160p': {
-    //  maxWidth: 3840,
-    //  videoBitrate: 60000000,
-    //  maxStreamingBitrate: 120000000,
-    //  audioBitrate: 640000,
-    //  h264Level: '52',
-    //},
+    '1080p': {
+     maxWidth: 1920,
+     videoBitrate: 20000000,
+     maxStreamingBitrate: 80000000,
+     audioBitrate: 384000,
+     h264Level: '51',
+    },
+    '1440p': {
+     maxWidth: 2560,
+     videoBitrate: 35000000,
+     maxStreamingBitrate: 100000000,
+     audioBitrate: 384000,
+     h264Level: '51',
+    },
+    '2160p': {
+     maxWidth: 3840,
+     videoBitrate: 60000000,
+     maxStreamingBitrate: 120000000,
+     audioBitrate: 640000,
+     h264Level: '52',
+    },
   };
 
   var PLAYER_TRANSCODE_QUALITIES = [
     { key: '720p', preset: '720p' },
-    //{ key: '1080p', preset: '1080p' },
-    //{ key: '1440p', preset: '1440p' },
-    //{ key: '2160p', preset: '2160p' },
+    { key: '1080p', preset: '1080p' },
+    { key: '1440p', preset: '1440p' },
+    { key: '2160p', preset: '2160p' },
   ];
 
   function defaultTranscodePresetKey() {
@@ -509,12 +509,12 @@
         Lampa.Storage.get('video_quality_default', '1080'),
         10
       );
-      //if (def >= 2160) return '2160p';
-      //if (def >= 1440) return '1440p';
-      //if (def >= 1080) return '1080p';
+      if (def >= 2160) return '2160p';
+      if (def >= 1440) return '1440p';
+      if (def >= 1080) return '1080p';
       return '720p';
     } catch (e) {
-      //return '1080p';
+      return '1080p';
       return '720p';
     }
   }
@@ -760,10 +760,10 @@
 
   function detectQuality(name) {
     var n = String(name || '');
-    //if (/2160p|\b4K\b/i.test(n)) return '4K';
-    //if (/1080p/i.test(n)) return '1080p';
+    if (/2160p|\b4K\b/i.test(n)) return '4K';
+    if (/1080p/i.test(n)) return '1080p';
     if (/720p/i.test(n)) return '720p';
-    //if (/HDR/i.test(n)) return 'HDR';
+    if (/HDR/i.test(n)) return 'HDR';
     return '';
   }
 
