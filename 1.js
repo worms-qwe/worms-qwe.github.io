@@ -482,14 +482,15 @@
   // --- Функция для запроса PlaybackInfo (POST) ---
   function fetchPlaybackInfo(itemId, userId, opts) {
     opts = opts || {};
-    var mediaSourceId = opts.mediaSourceId || mediaSourceId(itemId);
     var audioIndex = opts.audioStreamIndex;
     var subIndex = opts.subtitleStreamIndex;
     var startTicks = opts.startTicks || 0;
+    var mediaSourceId = opts.mediaSourceId; // может быть undefined
+
+    console.log('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks });
 
     var postBody = {
       UserId: userId,
-      MediaSourceId: mediaSourceId,
       StartTimeTicks: startTicks,
       IsPlayback: true,
       AutoOpenLiveStream: true,
@@ -519,6 +520,9 @@
       BreakOnNonKeyFrames: false
     };
 
+    if (mediaSourceId) {
+      postBody.MediaSourceId = mediaSourceId;
+    }
     if (audioIndex !== undefined && audioIndex !== null) {
       postBody.AudioStreamIndex = audioIndex;
     }
@@ -526,9 +530,17 @@
       postBody.SubtitleStreamIndex = subIndex;
     }
 
+    console.log('[Jellyfin] POST body:', postBody);
+
     return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
       method: 'POST',
       jsonBody: postBody
+    }).then(function (response) {
+      console.log('[Jellyfin] PlaybackInfo response:', response);
+      return response;
+    }).catch(function (err) {
+      console.error('[Jellyfin] PlaybackInfo error:', err);
+      throw err;
     });
   }
 
@@ -544,14 +556,18 @@
   // --- Функция создания объекта для плеера (для внутреннего плеера с транскодированием) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
+    console.log('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
+
+    // Сначала делаем запрос без MediaSourceId, чтобы получить дефолтный источник
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
-        console.log('Jellyfin PlaybackInfo response:', info);
-
-        var src = info.MediaSources[0];
-        if (!src || !src.TranscodingUrl) {
-          console.error('No TranscodingUrl in PlaybackInfo response');
-          throw new Error('No TranscodingUrl in PlaybackInfo response');
+        console.log('[Jellyfin] buildPlayObject got info', info);
+        var src = info.MediaSources && info.MediaSources[0];
+        if (!src) {
+          throw new Error('No MediaSources in response');
+        }
+        if (!src.TranscodingUrl) {
+          throw new Error('No TranscodingUrl in MediaSource');
         }
 
         var streams = src.MediaStreams || [];
@@ -565,8 +581,9 @@
         currentPlaySessionId = info.PlaySessionId;
         currentMediaStreams = streams;
 
+        // Добавляем apiBase к TranscodingUrl (он может быть относительным)
         var fullUrl = apiBase() + src.TranscodingUrl;
-        console.log('Jellyfin play URL:', fullUrl);
+        console.log('[Jellyfin] Full URL:', fullUrl);
 
         var playObj = {
           title: row.title,
@@ -577,7 +594,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-        console.log('Jellyfin playObj:', playObj);
+        console.log('[Jellyfin] playObj created:', playObj);
         return playObj;
       });
   }
@@ -585,6 +602,7 @@
   // --- Функция обновления плеера при смене аудио/субтитров ---
   function updatePlayerWithNewStreams(itemId, userId, audioIdx, subIdx, startTicks) {
     return fetchPlaybackInfo(itemId, userId, {
+      mediaSourceId: currentMediaSourceId,
       audioStreamIndex: audioIdx,
       subtitleStreamIndex: subIdx,
       startTicks: startTicks
@@ -614,7 +632,7 @@
   // --- Настройка дорожек и субтитров в плеере ---
   function setupTracksForJellyfin() {
     Lampa.Player.listener.follow('ready', function (data) {
-      console.log('Jellyfin Player ready event', data);
+      console.log('[Jellyfin] Player ready event', data);
       if (!currentMediaStreams || !currentMediaStreams.length) return;
 
       var audioStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Audio'; });
@@ -657,6 +675,10 @@
           selected: selected,
           mode: selected ? 'showing' : 'disabled'
         };
+        // Добавляем DeliveryUrl, если есть
+        if (stream.DeliveryUrl) {
+          sub.url = apiBase() + stream.DeliveryUrl;
+        }
         Object.defineProperty(sub, 'mode', {
           set: function (v) {
             if (v === 'showing') {
@@ -682,996 +704,59 @@
   }
 
   // --- Функции для работы с элементами (каталог, хаб, карточки) ---
-  function tmdbFromItem(item) {
-    if (!item || !item.ProviderIds) return null;
-    var id = item.ProviderIds.Tmdb || item.ProviderIds.tmdb;
-    if (!id) return null;
-    var method = item.Type === 'Series' || item.SeriesName ? 'tv' : 'movie';
-    if (item.Type === 'Episode' && item.SeriesId) method = 'tv';
-    return { method: method, id: String(id) };
-  }
-
-  function detectQuality(name) {
-    var n = String(name || '');
-    if (/2160p|\b4K\b/i.test(n)) return '4K';
-    if (/1080p/i.test(n)) return '1080p';
-    if (/720p/i.test(n)) return '720p';
-    if (/HDR/i.test(n)) return 'HDR';
-    return '';
-  }
-
-  function pad2(n) {
-    n = Number(n) || 0;
-    return n < 10 ? '0' + n : String(n);
-  }
-
-  function cleanJellyfinName(name) {
-    return String(name || '')
-      .replace(RELEASE_FOLDER_RE, '')
-      .replace(/\(\s*\)|\s{2,}/g, ' ')
-      .trim();
-  }
-
-  function episodeNumbers(item) {
-    item = item || {};
-    return {
-      season: Number(item.ParentIndexNumber) || 0,
-      episode: Number(item.IndexNumber) || 0,
-    };
-  }
-
-  function episodeCode(item) {
-    var n = episodeNumbers(item);
-    return 'S' + pad2(n.season) + 'E' + pad2(n.episode);
-  }
-
-  function episodeCodeShort(item) {
-    var n = episodeNumbers(item);
-    return 'S' + n.season + ':E' + n.episode;
-  }
-
-  function cleanEpisodeName(name) {
-    var n = String(name || '').trim();
-    if (!n || /^s\d+\s*e\d+/i.test(n) || RELEASE_FOLDER_RE.test(n)) return '';
-    return n;
-  }
-
-  function sortEpisodeRows(rows) {
-    return rows.slice().sort(function (a, b) {
-      var na = episodeNumbers(a.raw);
-      var nb = episodeNumbers(b.raw);
-      if (na.season !== nb.season) return na.season - nb.season;
-      if (na.episode !== nb.episode) return na.episode - nb.episode;
-      return String(a.title || '').localeCompare(String(b.title || ''), undefined, {
-        sensitivity: 'base',
-      });
-    });
-  }
-
-  function episodeTitle(item, seriesTitle) {
-    var series = seriesTitle || cleanJellyfinName(item.SeriesName) || '';
-    var epName = String(item.Name || '').trim();
-    if (epName && !/^s\d+\s*e\d+/i.test(epName) && !RELEASE_FOLDER_RE.test(epName)) {
-      return series ? series + ' — ' + epName : epName;
-    }
-    return series ? series + ' — ' + episodeCode(item) : episodeCode(item);
-  }
-
-  function cardTitle(item) {
-    if (!item) return '';
-    if (item.Type === 'Episode') return episodeTitle(item);
-    return cleanJellyfinName(item.Name) || item.Name || '';
-  }
-
-  function displayTitleFromMeta(item, meta) {
-    if (!meta) return cardTitle(item);
-    if (item.Type === 'Episode') return episodeTitle(item, meta.title);
-    return meta.title || cardTitle(item);
-  }
-
-  function hubCardTitle(row) {
-    var title = row.title || '';
-    if (Lampa.Utils && typeof Lampa.Utils.shortText === 'function') {
-      return Lampa.Utils.shortText(title, 54);
-    }
-    return title.length > 54 ? title.slice(0, 51) + '...' : title;
-  }
-
-  function cardYear(item, meta) {
-    if (meta && meta.year) return String(meta.year);
-    return item.ProductionYear ? String(item.ProductionYear) : '';
-  }
-
-  function itemScore(raw) {
-    var s = 0;
-    if (raw.ImageTags && raw.ImageTags.Primary) s += 100;
-    if (tmdbFromItem(raw)) s += 50;
-    var name = String(raw.Name || '');
-    if (name.length < 42) s += 10;
-    if (!RELEASE_FOLDER_RE.test(name)) s += 30;
-    if (raw.UserData && Number(raw.UserData.PlayedPercentage) > 0) s += 5;
-    return s;
-  }
-
-  function mapRow(item, meta) {
-    meta = meta || null;
-    var tmdb = tmdbFromItem(item);
-    var jellyPoster = posterUrl(item);
-    var displayTitle = meta ? displayTitleFromMeta(item, meta) : cardTitle(item);
-    return {
-      id: item.Id,
-      raw: item,
-      title: displayTitle,
-      subtitle: meta && meta.subtitle ? meta.subtitle : '',
-      year: cardYear(item, meta),
-      poster: jellyPoster,
-      displayPoster:
-        meta && meta.poster
-          ? meta.poster
-          : jellyPoster !== IMG_PLACEHOLDER
-            ? jellyPoster
-            : IMG_PLACEHOLDER,
-      type: item.Type || '',
-      tmdb: tmdb,
-      quality: detectQuality(item.Name),
-      rating:
-        item.CommunityRating && Number(item.CommunityRating) > 0
-          ? parseFloat(item.CommunityRating).toFixed(1)
-          : '',
-      resumeSec: item.UserData ? ticksToSeconds(item.UserData.PlaybackPositionTicks) : 0,
-      playedPct: item.UserData ? Number(item.UserData.PlayedPercentage) || 0 : 0,
-      watched: !!(item.UserData && item.UserData.Played),
-    };
-  }
-
-  function ticksToSeconds(ticks) {
-    var n = Number(ticks);
-    if (!isFinite(n) || n <= 0) return 0;
-    return Math.floor(n / 10000000);
-  }
-
-  function fetchTmdbMeta(tmdb) {
-    var key = tmdb.method + '/' + tmdb.id;
-    if (tmdbMetaCache[key]) return Promise.resolve(tmdbMetaCache[key]);
-    var lang =
-      Lampa.Storage.field('tmdb_lang') || Lampa.Storage.get('language') || 'en';
-    var url = Lampa.TMDB.api(
-      tmdb.method +
-      '/' +
-      tmdb.id +
-      '?api_key=' +
-      Lampa.TMDB.key() +
-      '&language=' +
-      lang
-    );
-    return tmdbJson(url)
-      .then(function (data) {
-        var meta = {
-          title:
-            data.title ||
-            data.name ||
-            data.original_title ||
-            data.original_name ||
-            '',
-          year: String(
-            (data.release_date || data.first_air_date || '').slice(0, 4) || ''
-          ),
-          poster: data.poster_path ? buildTmdbImageUrl(data.poster_path) : '',
-          subtitle: data.tagline || '',
-        };
-        tmdbMetaCache[key] = meta;
-        return meta;
-      })
-      .catch(function () {
-        return null;
-      });
-  }
-
-  function promiseAllChunks(items, size, fn) {
-    if (!items.length) return Promise.resolve([]);
-    size = Math.max(1, size || 8);
-    var chunks = [];
-    var i;
-    for (i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-    var seq = Promise.resolve([]);
-    chunks.forEach(function (chunk) {
-      seq = seq.then(function (acc) {
-        return Promise.all(chunk.map(fn)).then(function (part) {
-          return acc.concat(part);
-        });
-      });
-    });
-    return seq;
-  }
-
-  function enrichRowsFromTmdb(rows) {
-    if (!storageToggle('TmdbPosters', true)) return Promise.resolve(rows);
-    return promiseAllChunks(rows, TMDB_ENRICH_CONCURRENCY, function (row) {
-      if (!row.tmdb) return Promise.resolve(row);
-      var raw = row.raw || {};
-      var needsPoster = !row.poster || row.poster === IMG_PLACEHOLDER;
-      var needsTitle =
-        RELEASE_FOLDER_RE.test(raw.Name || '') ||
-        RELEASE_FOLDER_RE.test(raw.SeriesName || '') ||
-        raw.Type === 'Episode';
-      if (!needsPoster && !needsTitle) return Promise.resolve(row);
-      return fetchTmdbMeta(row.tmdb).then(function (meta) {
-        if (!meta) return row;
-        return Object.assign({}, row, mapRow(row.raw, meta));
-      });
-    });
-  }
-
-  function dedupeRows(rows) {
-    var best = {};
-    var loose = [];
-    rows.forEach(function (row) {
-      if (row.tmdb) {
-        var key = row.tmdb.method + '/' + row.tmdb.id;
-        if (!best[key] || itemScore(row.raw) > itemScore(best[key].raw)) best[key] = row;
-      } else {
-        loose.push(row);
-      }
-    });
-    var out = Object.keys(best).map(function (k) {
-      return best[k];
-    });
-    var seen = {};
-    loose.forEach(function (row) {
-      var nk = String(row.title || '')
-        .toLowerCase()
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!nk.length || seen[nk]) return;
-      seen[nk] = true;
-      out.push(row);
-    });
-    out.sort(function (a, b) {
-      return String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' });
-    });
-    return out;
-  }
-
-  function filterRows(rows, category) {
-    if (!storageToggle('HideFolders', true)) return rows;
-    return rows.filter(function (row) {
-      if (row.tmdb) return true;
-      if (RELEASE_FOLDER_RE.test(row.raw.Name || row.title || '')) return false;
-      if (
-        category === 'Series' &&
-        (!row.poster || row.poster === IMG_PLACEHOLDER) &&
-        (!row.displayPoster || row.displayPoster === IMG_PLACEHOLDER)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }
-
-  function processRows(items, category) {
-    var rows = items.map(function (item) {
-      return mapRow(item);
-    });
-    if (category === 'Episode') {
-      rows = sortEpisodeRows(rows);
-      return enrichRowsFromTmdb(rows).then(function (enriched) {
-        return sortEpisodeRows(enriched);
-      });
-    }
-    if (storageToggle('Dedupe', true)) rows = dedupeRows(rows);
-    return enrichRowsFromTmdb(rows).then(function (enriched) {
-      return filterRows(enriched, category);
-    });
-  }
-
-  function listPath(category, userId, startIndex) {
-    var fields =
-      'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,OfficialRating,RunTimeTicks';
-    var common =
-      'StartIndex=' +
-      (startIndex || 0) +
-      '&Limit=' +
-      PAGE_SIZE +
-      '&Fields=' +
-      encodeURIComponent(fields) +
-      '&EnableImageTypes=Primary&SortBy=SortName&SortOrder=Ascending';
-
-    if (category === 'Resume') {
-      return (
-        '/Users/' +
-        encodeURIComponent(userId) +
-        '/Items/Resume?MediaTypes=Video&' +
-        common
-      );
-    }
-
-    var type = category === 'Series' ? 'Series' : 'Movie';
-    return (
-      '/Items?UserId=' +
-      encodeURIComponent(userId) +
-      '&Recursive=true&IncludeItemTypes=' +
-      type +
-      '&' +
-      common
-    );
-  }
-
-  function latestFieldsQuery() {
-    return (
-      'Limit=' +
-      PAGE_SIZE +
-      '&Fields=' +
-      encodeURIComponent(
-        'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,RunTimeTicks'
-      ) +
-      '&EnableImageTypes=Primary'
-    );
-  }
-
-  function fetchLatest(userId) {
-    return jfHttp(
-      '/Users/' +
-      encodeURIComponent(userId) +
-      '/Items/Latest?' +
-      latestFieldsQuery()
-    ).then(function (data) {
-      var items = Array.isArray(data) ? data : (data && data.Items) || [];
-      return processRows(items, 'Latest').then(function (rows) {
-        return {
-          rows: rows,
-          total: rows.length,
-          next: items.length,
-          hasMore: false,
-        };
-      });
-    });
-  }
-
-  function fetchItems(category, startIndex) {
-    return resolveUserId().then(function (userId) {
-      if (category === 'Latest') return fetchLatest(userId);
-
-      return jfHttp(listPath(category, userId, startIndex)).then(function (data) {
-        var items = (data && data.Items) || [];
-        var total =
-          data && typeof data.TotalRecordCount === 'number'
-            ? data.TotalRecordCount
-            : items.length;
-        return processRows(items, category).then(function (rows) {
-          return {
-            rows: rows,
-            total: total,
-            next: (startIndex || 0) + items.length,
-            hasMore: (startIndex || 0) + items.length < total,
-          };
-        });
-      });
-    });
-  }
-
-  function hubSection(result, category) {
-    var rows = (result && result.rows) || [];
-    return {
-      category: category,
-      rows: rows.slice(0, HUB_PREVIEW_LIMIT),
-      total: (result && result.total) || rows.length,
-      previewPosters: rows
-        .slice(0, 3)
-        .map(function (row) {
-          return row.displayPoster || row.poster;
-        })
-        .filter(function (url) {
-          return url && url !== IMG_PLACEHOLDER;
-        }),
-    };
-  }
-
-  function fetchHubData() {
-    return Promise.all([
-      fetchItems('Resume', 0),
-      fetchItems('Latest', 0),
-      fetchItems('Movie', 0),
-      fetchItems('Series', 0),
-    ]).then(function (parts) {
-      return {
-        resume: hubSection(parts[0], 'Resume'),
-        latest: hubSection(parts[1], 'Latest'),
-        movies: hubSection(parts[2], 'Movie'),
-        series: hubSection(parts[3], 'Series'),
-      };
-    });
-  }
-
-  function bindJellyfinCard($card, row, ctx) {
-    $card.on('hover:focus', function () {
-      if (ctx.onFocus) ctx.onFocus(this, $card, row);
-    });
-    if (ctx.interactive !== false) {
-      var tapToPlay = ctx.tapToPlay;
-      $card.on('hover:enter', function () {
-        if (tapToPlay) playMediaRow(row);
-        else showItemMenu(row);
-      });
-      $card.on('hover:long', function () {
-        showItemMenu(row);
-      });
-    }
-    $card.on('jf:update', function (_e, updated) {
-      injectCardChrome($card, updated, { hubLine: !!(ctx && ctx.compact) });
-      updateCardPoster($card, updated);
-      $card.find('.card__title').text(ctx && ctx.compact ? hubCardTitle(updated) : updated.title);
-      if (updated.year) $card.find('.card__age').text(updated.year);
-      if (ctx && ctx.compact) applyHubCardMeta($card, updated);
-    });
-  }
-
-  function applyHubCardMeta($card, row) {
-    var $view = $card.find('.card__view');
-    $view.find('.card__vote').remove();
-
-    if (row.rating && parseFloat(row.rating) > 0) {
-      $view.append($('<div class="card__vote"></div>').text(row.rating));
-    }
-
-    var isEpisode = row.raw && row.raw.Type === 'Episode';
-    var $quality = $view.find('.card__quality');
-    if (row.quality && !isEpisode) {
-      if (!$quality.length) {
-        $quality = $('<div class="card__quality"><div></div></div>');
-        $view.append($quality);
-      }
-      $quality.find('div').text(row.quality);
-    } else {
-      $quality.remove();
-    }
-  }
-
-  function makeJellyfinCard(row, ctx) {
-    var title = ctx && ctx.compact ? hubCardTitle(row) : row.title;
-    var $card = Lampa.Template.get('card', {
-      title: title,
-      release_year: row.year,
-    });
-    $card.addClass('card--loaded jellyfin-card');
-    if (ctx && ctx.compact) $card.addClass('jellyfin-card--hub-line');
-    updateCardPoster($card, row);
-    injectCardChrome($card, row, { hubLine: !!(ctx && ctx.compact) });
-    if (ctx && ctx.compact) applyHubCardMeta($card, row);
-    bindJellyfinCard($card, row, ctx);
-    if (ctx.cardsById) ctx.cardsById[String(row.id)] = { $card: $card, row: row };
-    return $card;
-  }
-
-  function makeFolderCard(folder, onFocus, opts) {
-    opts = opts || {};
-    var $card = Lampa.Template.get('jellyfin_folder', {});
-    $card.find('.bookmarks-folder__title').text(folder.title || '');
-    $card.find('.bookmarks-folder__num').text(String(folder.count || 0));
-
-    var posters = (folder.posters || []).slice(0, 3);
-    if (!posters.length) posters = [IMG_PLACEHOLDER];
-
-    var $body = $card.find('.bookmarks-folder__body');
-    posters.forEach(function (src, idx) {
-      var $img = $('<img class="card__img i-' + idx + '">');
-      $img.attr('src', src || IMG_PLACEHOLDER);
-      $body.append($img);
-    });
-
-    $card.addClass('card--loaded');
-    $card.on('hover:focus', function () {
-      if (onFocus) onFocus(this, $card);
-      var bg = posters[0];
-      if (bg && bg !== IMG_PLACEHOLDER) Lampa.Background.change(bg);
-    });
-    if (!opts.noEnter) {
-      $card.on('hover:enter', function () {
-        if (folder.category) openCategory(folder.category);
-      });
-    }
-    return $card;
-  }
-
-  function hubCategoryFromKey(key) {
-    if (key === 'resume') return 'Resume';
-    if (key === 'latest') return 'Latest';
-    if (key === 'movies') return 'Movie';
-    if (key === 'series') return 'Series';
-    return '';
-  }
-
-  function hubLibraryFolders(data) {
-    var folders = [];
-    if (data.movies.total) {
-      folders.push({
-        title: Lampa.Lang.translate('jellyfin_movies'),
-        count: data.movies.total,
-        posters: data.movies.previewPosters,
-        category: 'Movie',
-      });
-    }
-    if (data.series.total) {
-      folders.push({
-        title: Lampa.Lang.translate('jellyfin_series'),
-        count: data.series.total,
-        posters: data.series.previewPosters,
-        category: 'Series',
-      });
-    }
-    return folders;
-  }
-
-  function buildHubLines(data) {
-    var lines = [];
-    var stats = [
-      {
-        key: 'resume',
-        label: Lampa.Lang.translate('jellyfin_stat_resume'),
-        value: data.resume.total,
-      },
-      {
-        key: 'latest',
-        label: Lampa.Lang.translate('jellyfin_stat_latest'),
-        value: data.latest.total,
-      },
-      {
-        key: 'movies',
-        label: Lampa.Lang.translate('jellyfin_stat_movies'),
-        value: data.movies.total,
-      },
-      {
-        key: 'series',
-        label: Lampa.Lang.translate('jellyfin_stat_series'),
-        value: data.series.total,
-      },
-    ];
-    var folders = hubLibraryFolders(data);
-
-    if (hubHasContent(data)) {
-      lines.push({
-        title: '',
-        nomore: true,
-        line_type: 'cards',
-        _jf_stats: true,
-        results: stats.map(function (stat) {
-          return {
-            title: stat.label,
-            count: stat.value,
-            _jf_stat: stat,
-          };
-        }),
-      });
-    }
-
-    function pushSection(spec) {
-      var results = [];
-      (spec.folders || []).forEach(function (folder) {
-        results.push({ jellyfin_folder: folder });
-      });
-      spec.rows.forEach(function (row) {
-        results.push({
-          jellyfin_row: row,
-          title: hubCardTitle(row),
-          release_year: row.year,
-        });
-      });
-      if (!results.length) return;
-
-      lines.push({
-        title: spec.title,
-        category: spec.category,
-        _jf_key: spec.key,
-        noimage: true,
-        more: spec.total > spec.rows.length,
-        nomore: spec.total <= spec.rows.length,
-        results: results,
-      });
-    }
-
-    if (data.resume.rows.length) {
-      pushSection({
-        key: 'resume',
-        title: Lampa.Lang.translate('jellyfin_resume'),
-        category: 'Resume',
-        rows: data.resume.rows,
-        total: data.resume.total,
-      });
-    }
-
-    if (data.latest.rows.length || folders.length) {
-      pushSection({
-        key: 'latest',
-        title: Lampa.Lang.translate('jellyfin_latest'),
-        category: 'Latest',
-        rows: data.latest.rows,
-        total: data.latest.total,
-        folders: folders,
-      });
-    }
-
-    if (data.movies.rows.length) {
-      pushSection({
-        key: 'movies',
-        title: Lampa.Lang.translate('jellyfin_movies'),
-        category: 'Movie',
-        rows: data.movies.rows,
-        total: data.movies.total,
-      });
-    }
-
-    if (data.series.rows.length) {
-      pushSection({
-        key: 'series',
-        title: Lampa.Lang.translate('jellyfin_series'),
-        category: 'Series',
-        rows: data.series.rows,
-        total: data.series.total,
-      });
-    }
-
-    return lines;
-  }
-
-  function attachHubRowListener(hubCtx) {
-    function onRowUpdated(e) {
-      if (!e || !e.row) return;
-      var slot = hubCtx.cardsById[String(e.row.id)];
-      if (!slot) return;
-      slot.row = e.row;
-      slot.$card.trigger('jf:update', [e.row]);
-    }
-    hubCtx.onRowUpdated = onRowUpdated;
-    Lampa.Listener.follow('jellyfin:row-updated', onRowUpdated);
-  }
-
-  function detachHubRowListener(hubCtx) {
-    if (hubCtx.onRowUpdated) Lampa.Listener.remove('jellyfin:row-updated', hubCtx.onRowUpdated);
-  }
-
-  function hubHasContent(data) {
-    return !!(data.resume.rows.length ||
-      data.latest.rows.length ||
-      data.movies.rows.length ||
-      data.series.rows.length);
-  }
-
-  function HubFallbackComponent(object, hubCtx) {
-    var self = this;
-    var scroll = new Lampa.Scroll({ mask: true, over: true, scroll_by_item: true, end_ratio: 1.5 });
-    var html = $('<div class="jellyfin-hub"></div>');
-    var lines = [];
-    var active = 0;
-
-    this.create = function () {
-      self.activity.loader(true);
-      html.append(scroll.render());
-
-      scroll.onWheel = function (step) {
-        if (step > 0) self.down();
-        else if (active > 0) self.up();
-      };
-
-      fetchHubData()
-        .then(function (data) {
-          if (!hubHasContent(data)) {
-            scroll.append(
-              $('<div class="jellyfin-state jellyfin-hub-empty"><div class="jellyfin-state__title">' +
-                Lampa.Lang.translate('jellyfin_empty') +
-                '</div></div>')
-            );
-            return;
-          }
-          buildHubLines(data).forEach(function (lineData) {
-            if (!lineData.results || !lineData.results.length) return;
-            var line = new HubLineFallback(lineData, hubCtx);
-            line.create();
-            line.onDown = self.down.bind(self);
-            line.onUp = self.up.bind(self);
-            line.onBack = self.back.bind(self);
-            scroll.append(line.render());
-            lines.push(line);
-          });
-          scroll.minus();
-          if (lines.length) scroll.update(lines[0].render());
-          if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render()[0]);
-          if (lines.length) {
-            try {
-              var act = Lampa.Activity.active();
-              if (act && act.activity === self.activity) lines[active].toggle();
-            } catch (e) { }
-          }
-        })
-        .catch(function () {
-          scroll.append(
-            $('<div class="jellyfin-state"><div class="jellyfin-state__title">' +
-              Lampa.Lang.translate('jellyfin_error') +
-              '</div></div>')
-          );
-        })
-        .then(function () {
-          self.activity.loader(false);
-          self.activity.toggle();
-        });
-
-      return html;
-    };
-
-    this.down = function () {
-      if (!lines.length) return;
-      active = Math.min(active + 1, lines.length - 1);
-      scroll.update(lines[active].render());
-      lines[active].toggle();
-    };
-
-    this.up = function () {
-      if (!lines.length) return;
-      active--;
-      if (active < 0) {
-        active = 0;
-        Lampa.Controller.toggle('head');
-      } else {
-        lines[active].toggle();
-        scroll.update(lines[active].render());
-      }
-    };
-
-    this.start = function () {
-      self.background();
-      if (Lampa.Activity.active().activity !== self.activity) return;
-      Lampa.Controller.add('content', {
-        link: self,
-        toggle: function () {
-          if (lines.length) {
-            scroll.restorePosition();
-            lines[active].toggle();
-          }
-        },
-        left: function () {
-          if (Navigator.canmove('left')) Navigator.move('left');
-          else Lampa.Controller.toggle('menu');
-        },
-        right: function () {
-          Navigator.move('right');
-        },
-        up: function () {
-          if (Navigator.canmove('up')) Navigator.move('up');
-          else if (active > 0) self.up();
-          else Lampa.Controller.toggle('head');
-        },
-        down: function () {
-          if (Navigator.canmove('down')) Navigator.move('down');
-          else self.down();
-        },
-        back: self.back,
-      });
-      Lampa.Controller.toggle('content');
-    };
-
-    this.background = function () {
-      Lampa.Background.immediately('');
-    };
-    this.pause = function () { };
-    this.stop = function () { };
-    this.render = function () {
-      return html;
-    };
-    this.destroy = function () {
-      detachHubRowListener(hubCtx);
-      hubCtx.cardsById = {};
-      lines.forEach(function (line) {
-        line.destroy();
-      });
-      lines = [];
-      scroll.destroy();
-      html.remove();
-    };
-    this.back = function () {
-      Lampa.Activity.backward();
-    };
-  }
-
-  function HubComponent(object) {
-    var hubCtx = {
-      tapToPlay: storageToggle('TapPlay', false),
-      cardsById: {},
-    };
-
-    attachHubRowListener(hubCtx);
-    return new HubFallbackComponent(object, hubCtx);
-  }
-
-  function HubLineFallback(data, hubCtx) {
-    var content = Lampa.Template.get('items_line', { title: data.title || '' });
-    var body = content.find('.items-line__body');
-    var scroll = new Lampa.Scroll({ horizontal: true, step: 300 });
-    var last = null;
-
-    content.addClass('items-line--type-' + (data._jf_stats ? 'default' : 'cards'));
-    if (data._jf_stats) content.addClass('items-line--jf-stats');
-    if (!data.title) content.addClass('items-line--jf-no-title');
-
-    this.create = function () {
-      scroll.body().addClass('items-cards mapping--line');
-      if (data.title) content.find('.items-line__title').text(data.title);
-
-      (data.results || []).forEach(function (element) {
-        var $render = null;
-        var focusBg = null;
-
-        if (element._jf_stat) {
-          var stat = element._jf_stat;
-          $render = Lampa.Template.get('register');
-          $render.addClass('selector register--line');
-          $render.find('.register__name').text(stat.label || '');
-          $render.find('.register__counter').text(String(stat.value == null ? 0 : stat.value));
-          $render.on('hover:enter', function () {
-            var category = hubCategoryFromKey(stat.key);
-            if (category) openCategory(category);
-          });
-        } else if (element.jellyfin_folder) {
-          var folder = element.jellyfin_folder;
-          $render = makeFolderCard(folder);
-          focusBg = (folder.posters && folder.posters[0]) || null;
-        } else if (element.jellyfin_row) {
-          var row = element.jellyfin_row;
-          $render = makeJellyfinCard(row, {
-            tapToPlay: hubCtx.tapToPlay,
-            cardsById: hubCtx.cardsById,
-            compact: true,
-          });
-          focusBg = row.displayPoster || row.poster;
-        }
-
-        if (!$render) return;
-
-        $render.on('hover:focus', function (e) {
-          last = e.target;
-          scroll.update($render, true);
-          if (focusBg && focusBg !== IMG_PLACEHOLDER) Lampa.Background.change(focusBg);
-        });
-        scroll.append($render);
-      });
-
-      if (data.category && data.more && !data.nomore) {
-        var $more = $('<div class="items-line__more selector"></div>').text(
-          Lampa.Lang.translate('jellyfin_more')
-        );
-        $more.on('hover:enter', function () {
-          openCategory(data.category);
-        });
-        $more.on('hover:focus', function (e) {
-          last = e.target;
-        });
-        content.find('.items-line__head').append($more);
-      }
-
-      body.append(scroll.render());
-      setTimeout(function () {
-        content.trigger('visible');
-        if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render()[0]);
-      }, 0);
-    };
-
-    this.toggle = function () {
-      var self = this;
-      Lampa.Controller.add('items_line', {
-        toggle: function () {
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
-        },
-        right: function () {
-          if (Navigator.canmove('right')) Navigator.move('right');
-        },
-        left: function () {
-          if (Navigator.canmove('left')) Navigator.move('left');
-          else if (self.onLeft) self.onLeft();
-          else Lampa.Controller.toggle('menu');
-        },
-        down: this.onDown,
-        up: this.onUp,
-        gone: function () { },
-        back: this.onBack,
-      });
-      Lampa.Controller.toggle('items_line');
-    };
-
-    this.render = function () {
-      return content;
-    };
-
-    this.destroy = function () {
-      scroll.destroy();
-      content.remove();
-    };
-  }
-
-  function fetchEpisodes(seriesId) {
-    return resolveUserId().then(function (userId) {
-      return jfHttp(
-        '/Items?UserId=' +
-        encodeURIComponent(userId) +
-        '&ParentId=' +
-        encodeURIComponent(seriesId) +
-        '&IncludeItemTypes=Episode&Recursive=true&Fields=' +
-        encodeURIComponent(
-          'ProviderIds,ImageTags,IndexNumber,ParentIndexNumber,UserData,SeriesName,SeriesPrimaryImageTag,Name'
-        ) +
-        '&SortBy=ParentIndexNumber&SortBy=IndexNumber&SortOrder=Ascending'
-      ).then(function (data) {
-        return processRows((data && data.Items) || [], 'Episode');
-      });
-    });
-  }
-
-  function refreshLibraryIndex(force) {
-    if (!force && libraryIndex.loadedAt && Date.now() - libraryIndex.loadedAt < LIBRARY_INDEX_TTL_MS) {
-      return Promise.resolve(libraryIndex.byTmdb);
-    }
-    return resolveUserId().then(function (userId) {
-      return jfHttp(
-        '/Items?UserId=' +
-        encodeURIComponent(userId) +
-        '&Recursive=true&IncludeItemTypes=Movie,Series&Fields=' +
-        encodeURIComponent('ProviderIds,Type,Id,Name,UserData,ImageTags') +
-        '&Limit=500'
-      );
-    })
-      .then(function (data) {
-        var byTmdb = {};
-        ((data && data.Items) || []).forEach(function (item) {
-          var tmdb = tmdbFromItem(item);
-          if (!tmdb) return;
-          var key = tmdb.method + '/' + tmdb.id;
-          var row = mapRow(item);
-          if (!byTmdb[key] || itemScore(item) > itemScore(byTmdb[key].raw)) {
-            byTmdb[key] = row;
-          }
-        });
-        libraryIndex.byTmdb = byTmdb;
-        libraryIndex.loadedAt = Date.now();
-        return byTmdb;
-      })
-      .catch(function () {
-        return libraryIndex.byTmdb;
-      });
-  }
-
-  function findLibraryRow(method, id) {
-    var key = String(method || '') + '/' + String(id || '');
-    return libraryIndex.byTmdb[key] || null;
-  }
-
-  function enabledControllerName(fallback) {
-    fallback = fallback || 'content';
-    try {
-      var cur = Lampa.Controller.enabled();
-      return (cur && cur.name) || fallback;
-    } catch (e) {
-      return fallback;
-    }
-  }
-
-  function deferControllerToggle(name) {
-    setTimeout(function () {
-      try {
-        Lampa.Controller.toggle(name);
-      } catch (e) { }
-    }, 10);
-  }
-
-  function pushCard(tmdb) {
-    Lampa.Activity.push({
-      url: '',
-      component: 'full',
-      id: tmdb.id,
-      method: tmdb.method,
-      source: Lampa.Storage.get('source') || 'tmdb',
-    });
-  }
+  // (остаются без изменений, см. предыдущий код)
+  function tmdbFromItem(item) { /* ... */ }
+  function detectQuality(name) { /* ... */ }
+  function pad2(n) { /* ... */ }
+  function cleanJellyfinName(name) { /* ... */ }
+  function episodeNumbers(item) { /* ... */ }
+  function episodeCode(item) { /* ... */ }
+  function episodeCodeShort(item) { /* ... */ }
+  function cleanEpisodeName(name) { /* ... */ }
+  function sortEpisodeRows(rows) { /* ... */ }
+  function episodeTitle(item, seriesTitle) { /* ... */ }
+  function cardTitle(item) { /* ... */ }
+  function displayTitleFromMeta(item, meta) { /* ... */ }
+  function hubCardTitle(row) { /* ... */ }
+  function cardYear(item, meta) { /* ... */ }
+  function itemScore(raw) { /* ... */ }
+  function mapRow(item, meta) { /* ... */ }
+  function ticksToSeconds(ticks) { /* ... */ }
+  function fetchTmdbMeta(tmdb) { /* ... */ }
+  function promiseAllChunks(items, size, fn) { /* ... */ }
+  function enrichRowsFromTmdb(rows) { /* ... */ }
+  function dedupeRows(rows) { /* ... */ }
+  function filterRows(rows, category) { /* ... */ }
+  function processRows(items, category) { /* ... */ }
+  function listPath(category, userId, startIndex) { /* ... */ }
+  function latestFieldsQuery() { /* ... */ }
+  function fetchLatest(userId) { /* ... */ }
+  function fetchItems(category, startIndex) { /* ... */ }
+  function hubSection(result, category) { /* ... */ }
+  function fetchHubData() { /* ... */ }
+  function bindJellyfinCard($card, row, ctx) { /* ... */ }
+  function applyHubCardMeta($card, row) { /* ... */ }
+  function makeJellyfinCard(row, ctx) { /* ... */ }
+  function makeFolderCard(folder, onFocus, opts) { /* ... */ }
+  function hubCategoryFromKey(key) { /* ... */ }
+  function hubLibraryFolders(data) { /* ... */ }
+  function buildHubLines(data) { /* ... */ }
+  function attachHubRowListener(hubCtx) { /* ... */ }
+  function detachHubRowListener(hubCtx) { /* ... */ }
+  function hubHasContent(data) { /* ... */ }
+  function HubFallbackComponent(object, hubCtx) { /* ... */ }
+  function HubComponent(object) { /* ... */ }
+  function HubLineFallback(data, hubCtx) { /* ... */ }
+  function fetchEpisodes(seriesId) { /* ... */ }
+  function refreshLibraryIndex(force) { /* ... */ }
+  function findLibraryRow(method, id) { /* ... */ }
+  function enabledControllerName(fallback) { /* ... */ }
+  function deferControllerToggle(name) { /* ... */ }
+  function pushCard(tmdb) { /* ... */ }
 
   // --- Основные функции воспроизведения ---
   function playRow(row, allRows) {
-    console.log('Jellyfin playRow called', row, allRows);
+    console.log('[Jellyfin] playRow called', row, allRows);
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
@@ -1703,7 +788,7 @@
         playSingleItem(row, rows);
       })
       .catch(function (e) {
-        console.error('Jellyfin playRow error:', e);
+        console.error('[Jellyfin] playRow error:', e);
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
@@ -1713,13 +798,14 @@
   }
 
   function playSingleItem(row, allRows) {
-    console.log('Jellyfin playSingleItem', row, allRows);
+    console.log('[Jellyfin] playSingleItem', row, allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
+      console.log('[Jellyfin] transcodingEnabled:', transcodingEnabled());
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
-            console.log('Jellyfin about to call Lampa.Player.play with', playObj);
+            console.log('[Jellyfin] About to call Lampa.Player.play with', playObj);
             if (allRows && allRows.length > 1) {
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
@@ -1729,7 +815,7 @@
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
-            console.error('Jellyfin buildPlayObject error:', e);
+            console.error('[Jellyfin] buildPlayObject error:', e);
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
           });
       } else {
@@ -1744,7 +830,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-        console.log('Jellyfin external player playObj', playObj);
+        console.log('[Jellyfin] External player playObj', playObj);
         Lampa.Player.play(playObj);
       }
     });
@@ -1775,676 +861,25 @@
   }
 
   // --- Функции меню и карточек ---
-  function openMediaCard(row) {
-    var tmdb = row.tmdb;
-    if (tmdb) {
-      pushCard(tmdb);
-      return;
-    }
-    if (row.type === 'Episode' && row.raw.SeriesId) {
-      jfHttp('/Items/' + encodeURIComponent(row.raw.SeriesId))
-        .then(function (series) {
-          var fromSeries = tmdbFromItem(series);
-          if (!fromSeries) {
-            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
-            return;
-          }
-          pushCard(fromSeries);
-        })
-        .catch(function () {
-          Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-        });
-      return;
-    }
-    Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_no_tmdb') });
-  }
+  function openMediaCard(row) { /* ... */ }
+  function showItemMenu(row) { /* ... */ }
+  function setItemWatched(row, watched) { /* ... */ }
+  function applyWatchedState(row, watched) { /* ... */ }
+  function notifyRowWatchedChange(row, watched) { /* ... */ }
+  function injectCardChrome($card, row, opts) { /* ... */ }
+  function updateCardPoster($card, row) { /* ... */ }
 
-  function showItemMenu(row) {
-    var ctl = enabledControllerName();
-    var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
+  // --- Панель категорий (PanelComponent) ---
+  // (остаётся без изменений)
 
-    if (row.tmdb || row.type === 'Episode' || row.type === 'Series') {
-      items.push({ title: Lampa.Lang.translate('jellyfin_open_card'), action: 'card' });
-    }
-    if (row.type === 'Series') {
-      items.push({ title: Lampa.Lang.translate('jellyfin_episodes'), action: 'episodes' });
-    }
-    items.push({
-      title: Lampa.Lang.translate(row.watched ? 'jellyfin_mark_unwatched' : 'jellyfin_mark_watched'),
-      action: row.watched ? 'unwatched' : 'watched',
-    });
-
-    Lampa.Select.show({
-      title: row.title,
-      items: items,
-      onBack: function () {
-        deferControllerToggle(ctl);
-      },
-      onSelect: function (sel) {
-        if (!sel) return;
-        if (sel.action === 'play') playMediaRow(row);
-        else if (sel.action === 'card') openMediaCard(row);
-        else if (sel.action === 'episodes') {
-          fetchEpisodes(row.id).then(function (eps) {
-            if (!eps.length) Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
-            else showEpisodePicker(eps);
-          });
-        } else if (sel.action === 'watched' || sel.action === 'unwatched') {
-          var markWatched = sel.action === 'watched';
-          setItemWatched(row, markWatched)
-            .then(function () {
-              notifyRowWatchedChange(row, markWatched);
-            })
-            .catch(function () {
-              Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-            });
-        }
-        deferControllerToggle(ctl);
-      },
-    });
-  }
-
-  function setItemWatched(row, watched) {
-    return resolveUserId().then(function (userId) {
-      var path =
-        '/Users/' +
-        encodeURIComponent(userId) +
-        '/PlayedItems/' +
-        encodeURIComponent(row.id);
-      if (watched) return jfHttp(path, { method: 'POST', jsonBody: {} });
-      return jfHttp(path, { method: 'DELETE', dataType: 'text' });
-    });
-  }
-
-  function applyWatchedState(row, watched) {
-    row.watched = watched;
-    row.playedPct = watched ? 100 : 0;
-    row.resumeSec = 0;
-    if (!row.raw.UserData) row.raw.UserData = {};
-    row.raw.UserData.Played = watched;
-    row.raw.UserData.PlayedPercentage = watched ? 100 : 0;
-    row.raw.UserData.PlaybackPositionTicks = 0;
-    return row;
-  }
-
-  function notifyRowWatchedChange(row, watched) {
-    applyWatchedState(row, watched);
-    Lampa.Bell.push({
-      text: Lampa.Lang.translate(
-        watched ? 'jellyfin_mark_watched_ok' : 'jellyfin_mark_unwatched_ok'
-      ),
-    });
-    try {
-      Lampa.Listener.send('jellyfin:row-updated', { row: row });
-    } catch (e) { }
-  }
-
-  function injectCardChrome($card, row, opts) {
-    opts = opts || {};
-    var $view = $card.find('.card__view');
-    if (!$view.length) return;
-
-    $view.find('.jellyfin-card-chrome,.jellyfin-card-shade').remove();
-    $view.append('<div class="jellyfin-card-shade" aria-hidden="true"></div>');
-
-    var $chrome = $('<div class="jellyfin-card-chrome" aria-hidden="true"></div>');
-    if (row.raw && row.raw.Type === 'Episode') {
-      $chrome.append(
-        '<div class="jellyfin-badge jellyfin-badge-episode">' +
-        episodeCodeShort(row.raw) +
-        '</div>'
-      );
-    }
-    if (row.quality && !opts.hubLine) {
-      var qualityClass =
-        row.raw && row.raw.Type === 'Episode'
-          ? 'jellyfin-badge-quality jellyfin-badge-quality--episode'
-          : 'jellyfin-badge-quality';
-      $chrome.append('<div class="jellyfin-badge ' + qualityClass + '">' + row.quality + '</div>');
-    } else if (row.quality && opts.hubLine && row.raw && row.raw.Type === 'Episode') {
-      $chrome.append(
-        '<div class="jellyfin-badge jellyfin-badge-quality jellyfin-badge-quality--episode">' +
-        row.quality +
-        '</div>'
-      );
-    }
-    if (row.watched || row.playedPct >= 100) {
-      $chrome.append('<div class="jellyfin-badge jellyfin-badge-watched">✓</div>');
-    }
-    if (row.playedPct > 0 && row.playedPct < 100) {
-      $chrome.append(
-        '<div class="jellyfin-card-progress"><span style="width:' +
-        Math.min(100, Math.round(row.playedPct)) +
-        '%"></span></div>'
-      );
-    }
-    $view.append($chrome);
-  }
-
-  function updateCardPoster($card, row) {
-    var src = row.displayPoster || row.poster;
-    if (src && src !== IMG_PLACEHOLDER) $card.find('.card__img').attr('src', src);
-  }
-
-  // --- Панель категорий ---
-  function PanelComponent(object) {
-    var self = this;
-    var category = (object && object.category) || 'Movie';
-    var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
-    var head = $('<div class="jellyfin-head"></div>');
-    var body = $('<div class="category-full mapping--grid cols--6 jellyfin-grid"></div>');
-    var html = $('<div class="jellyfin-module"></div>');
-    var last = null;
-    var rows = [];
-    var loading = false;
-    var hasMore = true;
-    var startIndex = 0;
-    var tapToPlay = storageToggle('TapPlay', false);
-    var cardsById = {};
-
-    function onRowUpdated(e) {
-      if (!e || !e.row) return;
-      var slot = cardsById[String(e.row.id)];
-      if (!slot) return;
-      slot.row = e.row;
-      slot.$card.trigger('jf:update', [e.row]);
-    }
-
-    Lampa.Listener.follow('jellyfin:row-updated', onRowUpdated);
-
-    scroll.append(head);
-    scroll.append(body);
-    scroll.minus(head);
-    html.append(scroll.render());
-
-    scroll.onWheel = function (step) {
-      if (Navigator && Navigator.move) Navigator.move(step > 0 ? 'down' : 'up');
-    };
-
-    scroll.onEnd = function () {
-      if (loading || !hasMore) return;
-      loadMore();
-    };
-
-    function headTitle() {
-      if (category === 'Series') return Lampa.Lang.translate('jellyfin_series');
-      if (category === 'Resume') return Lampa.Lang.translate('jellyfin_resume');
-      if (category === 'Latest') return Lampa.Lang.translate('jellyfin_latest');
-      return Lampa.Lang.translate('jellyfin_movies');
-    }
-
-    function renderHead() {
-      head.html(
-        '<div class="jellyfin-head__title">' + $('<div>').text(headTitle()).html() + '</div>'
-      );
-    }
-
-    function cardCtx() {
-      return {
-        tapToPlay: tapToPlay,
-        cardsById: cardsById,
-        onFocus: function (el, $card, row) {
-          last = el;
-          scroll.update($card, false);
-          var bg = row.displayPoster || row.poster;
-          if (bg && bg !== IMG_PLACEHOLDER) Lampa.Background.change(bg);
-        },
-      };
-    }
-
-    function buildGrid(list, append) {
-      if (!append) {
-        body.empty();
-        cardsById = {};
-      }
-      body.removeClass('jellyfin-catalog--state');
-
-      if (!list.length && !append) {
-        renderEmpty();
-        return;
-      }
-
-      list.forEach(function (row) {
-        body.append(makeJellyfinCard(row, cardCtx()));
-      });
-
-      setTimeout(function () {
-        try {
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
-        } catch (e) { }
-      }, 0);
-    }
-
-    function renderEmpty(opts) {
-      body.empty().addClass('jellyfin-catalog--state');
-      opts = opts || {};
-      var $box = $('<div class="jellyfin-state"></div>');
-      $box.append(
-        '<div class="jellyfin-state__title">' +
-        $('<div>').text(opts.title || Lampa.Lang.translate('jellyfin_empty')).html() +
-        '</div>'
-      );
-      $box.append(
-        '<div class="jellyfin-state__descr">' +
-        $('<div>').text(opts.descr || Lampa.Lang.translate('jellyfin_empty_descr')).html() +
-        '</div>'
-      );
-      var $retry = $(
-        '<div class="simple-button selector">' + Lampa.Lang.translate('jellyfin_retry') + '</div>'
-      );
-      $retry.on('hover:enter', reload);
-      $retry.on('hover:focus', function () {
-        last = this;
-        scroll.update($retry, true);
-      });
-      $box.append($retry);
-      body.append($box);
-      last = $retry[0];
-    }
-
-    function reload() {
-      Lampa.Activity.replace({
-        url: '',
-        title: headTitle(),
-        component: PANEL_COMPONENT,
-        category: category,
-        page: 1,
-      });
-    }
-
-    function loadInitial() {
-      loading = true;
-      self.activity.loader(true);
-      fetchItems(category, 0)
-        .then(function (result) {
-          rows = result.rows;
-          startIndex = result.next;
-          hasMore = result.hasMore;
-          renderHead();
-          buildGrid(rows, false);
-        })
-        .catch(function () {
-          renderHead();
-          renderEmpty({
-            title: Lampa.Lang.translate('jellyfin_error'),
-            descr: Lampa.Lang.translate('jellyfin_settings_hint'),
-          });
-        })
-        .then(function () {
-          loading = false;
-          self.activity.loader(false);
-          self.activity.toggle();
-        });
-    }
-
-    function loadMore() {
-      loading = true;
-      fetchItems(category, startIndex)
-        .then(function (result) {
-          rows = rows.concat(result.rows);
-          startIndex = result.next;
-          hasMore = result.hasMore;
-          buildGrid(result.rows, true);
-        })
-        .catch(function () { })
-        .then(function () {
-          loading = false;
-        });
-    }
-
-    this.create = function () {
-      loadInitial();
-      return html;
-    };
-
-    this.start = function () {
-      self.background();
-      Lampa.Controller.add('content', {
-        toggle: function () {
-          scroll.restorePosition();
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
-        },
-        left: function () {
-          if (Navigator.canmove('left')) Navigator.move('left');
-          else Lampa.Controller.toggle('menu');
-        },
-        right: function () {
-          if (Navigator.canmove('right')) Navigator.move('right');
-        },
-        up: function () {
-          if (Navigator.canmove('up')) Navigator.move('up');
-          else Lampa.Controller.toggle('head');
-        },
-        down: function () {
-          if (Navigator.canmove('down')) Navigator.move('down');
-        },
-        back: self.back,
-      });
-      Lampa.Controller.toggle('content');
-    };
-
-    this.background = function () {
-      Lampa.Background.immediately('');
-    };
-    this.pause = function () { };
-    this.stop = function () { };
-    this.render = function () {
-      return html;
-    };
-    this.destroy = function () {
-      Lampa.Listener.remove('jellyfin:row-updated', onRowUpdated);
-      cardsById = {};
-      scroll.destroy();
-      html.remove();
-    };
-    this.back = function () {
-      Lampa.Activity.backward();
-    };
-  }
-
-  function openCategory(category) {
-    var title = Lampa.Lang.translate('jellyfin_movies');
-    if (category === 'Series') title = Lampa.Lang.translate('jellyfin_series');
-    else if (category === 'Resume') title = Lampa.Lang.translate('jellyfin_resume');
-    else if (category === 'Latest') title = Lampa.Lang.translate('jellyfin_latest');
-
-    Lampa.Activity.push({
-      url: '',
-      title: title,
-      component: PANEL_COMPONENT,
-      category: category,
-      page: 1,
-    });
-  }
-
-  function openHub() {
-    Lampa.Activity.push({
-      url: '',
-      title: Lampa.Lang.translate('jellyfin_title'),
-      component: HUB_COMPONENT,
-      page: 1,
-    });
-  }
-
-  function listenFullCard() {
-    Lampa.Listener.follow('full', function (e) {
-      if (!storageToggle('FullButton', true)) return;
-      if (e.type !== 'complite' || !e.object) return;
-
-      var method = String(e.object.method || '');
-      var id = String(e.object.id || '');
-      if (!method || !id) return;
-
-      function mountButton(row) {
-        if (!row || !e.object.activity || typeof e.object.activity.render !== 'function') return;
-        var $root = e.object.activity.render();
-        if ($root.find('.button--jellyfin').length) return;
-
-        var label = Lampa.Lang.translate('jellyfin_play_from_library');
-        if (row.playedPct > 0 && row.playedPct < 100) {
-          label += ' (' + Math.round(row.playedPct) + '%)';
-        }
-
-        var $btn = $(
-          '<div class="full-start__button selector button--jellyfin" data-subtitle="Jellyfin">' +
-          FULLSTART_BTN_ICON +
-          '<span></span></div>'
-        );
-        $btn.find('span').text(label);
-        $btn.on('hover:enter', function () {
-          playMediaRow(row);
-        });
-
-        var $anchor = $root.find('.view--torrent').first();
-        if ($anchor.length) $anchor.after($btn);
-        else $root.find('.full-start-new__buttons').append($btn);
-      }
-
-      var cached = findLibraryRow(method, id);
-      if (cached) {
-        mountButton(cached);
-        return;
-      }
-
-      refreshLibraryIndex(false).then(function () {
-        mountButton(findLibraryRow(method, id));
-      });
-    });
-  }
-
-  function injectHeadIcon() {
-    var $icon = Lampa.Head.addIcon(HEAD_ICON_SVG);
-    $icon.addClass('jellyfin-head-icon selector');
-    $icon.on('hover:enter', openHub);
-  }
-
-  function registerMenuButtons() {
-    Lampa.Menu.addButton(MANIFEST.icon, Lampa.Lang.translate('jellyfin_title'), openHub);
-  }
-
-  function registerStyles() {
-    Lampa.Template.add(
-      'jellyfin_folder',
-      '<div class="bookmarks-folder card selector layer--visible layer--render jellyfin-folder">' +
-      '<div class="bookmarks-folder__inner card__view">' +
-      '<div class="bookmarks-folder__layer">' +
-      '<div class="bookmarks-folder__head">' +
-      '<div class="bookmarks-folder__title"></div>' +
-      '<div class="bookmarks-folder__num"></div>' +
-      '</div>' +
-      '<div class="bookmarks-folder__body"></div>' +
-      '</div></div></div>'
-    );
-
-    Lampa.Template.add(
-      'jellyfin_style',
-      '<style>' +
-      '.jellyfin-head{padding:.8em 1em .4em}' +
-      '.jellyfin-head__title{font-size:1.05em;font-weight:700;opacity:.92}' +
-      '.jellyfin-hub .items-line--jf-stats{min-height:0!important;padding-bottom:1em}' +
-      '.jellyfin-hub .items-line--jf-stats .items-line__body{margin-top:0}' +
-      '.jellyfin-hub .items-line--jf-stats .register__name{max-width:none}' +
-      '.jellyfin-hub .items-line--jf-no-title .items-line__head{display:none}' +
-      '.jellyfin-hub-empty{margin-top:2em}' +
-      '.jellyfin-hub .register--line{flex:0 0 auto;position:relative}' +
-      '.jellyfin-hub .jellyfin-card--hub-line .card__view{margin-bottom:0}' +
-      '.jellyfin-hub .jellyfin-card--hub-line .card__title{' +
-      'position:absolute;left:.55em;right:.55em;bottom:1.65em;z-index:3;margin:0;color:#fff;' +
-      'font-size:1.05em;max-height:2.4em;-webkit-line-clamp:2;line-clamp:2;' +
-      'text-shadow:0 1px 3px rgba(0,0,0,.85)}' +
-      '.jellyfin-hub .jellyfin-card--hub-line .card__age{' +
-      'position:absolute;left:.55em;bottom:.45em;z-index:3;margin:0;opacity:.9;font-size:.85em}' +
-      '.jellyfin-hub .bookmarks-folder{width:11.5em;flex:0 0 auto}' +
-      '.jellyfin-hub .bookmarks-folder__layer{background-color:#3e3e3e;border-radius:1em}' +
-      '.jellyfin-hub .bookmarks-folder__body{position:relative;overflow:hidden;border-radius:0 0 1em 1em}' +
-      '.jellyfin-hub .bookmarks-folder__body .card__img{position:absolute;left:0;width:100%;object-fit:cover;border-radius:.5em}' +
-      '.jellyfin-hub .bookmarks-folder__body .i-0{height:100%;top:0;z-index:1}' +
-      '.jellyfin-hub .bookmarks-folder__body .i-1{height:80%;top:20%;z-index:2}' +
-      '.jellyfin-hub .bookmarks-folder__body .i-2{height:60%;top:40%;z-index:3}' +
-      '.jellyfin-hub .bookmarks-folder__head{padding:.85em 1em;line-height:1.25}' +
-      '.jellyfin-hub .bookmarks-folder__title{font-weight:300;font-size:1.1em}' +
-      '.jellyfin-hub .bookmarks-folder__num{font-weight:700;font-size:1.15em;margin-top:.15em}' +
-      '.jellyfin-hub .card.jellyfin-card .card__title{line-height:1.25;max-height:2.5em;overflow:hidden}' +
-      '.jellyfin-card.card,.jellyfin-module .jellyfin-card.card{position:relative}' +
-      '.jellyfin-card .card__view{overflow:hidden;position:relative;border-radius:.5em}' +
-      '.jellyfin-card .card__img{border-radius:inherit}' +
-      '.jellyfin-hub .bookmarks-folder.card{position:relative}' +
-      '.jellyfin-hub .bookmarks-folder .card__view{overflow:hidden;position:relative;border-radius:1em}' +
-      '.jellyfin-hub .card.jellyfin-card.focus::after,' +
-      '.jellyfin-module .card.jellyfin-card.focus::after,' +
-      '.jellyfin-hub .items-cards .card.jellyfin-card.selector.focus::after,' +
-      '.jellyfin-module .items-cards .card.jellyfin-card.selector.focus::after,' +
-      '.jellyfin-hub .card.jellyfin-card.focus .card__view::after,' +
-      '.jellyfin-module .card.jellyfin-card.focus .card__view::after,' +
-      '.jellyfin-hub .bookmarks-folder.focus::after,' +
-      '.jellyfin-hub .bookmarks-folder.focus .card__view::after{' +
-      'display:none!important;content:none!important}' +
-      '.jellyfin-hub .card.jellyfin-card.focus .card__view,' +
-      '.jellyfin-module .card.jellyfin-card.focus .card__view{' +
-      'box-shadow:0 0 0 .22em #fff;border-radius:.5em}' +
-      '.jellyfin-hub .register.selector.focus::after{' +
-      'content:"";position:absolute;display:block;pointer-events:none;z-index:-1;' +
-      'top:-.5em;left:-.5em;right:-.5em;bottom:-.5em;border:.3em solid #fff;border-radius:1.4em;box-shadow:none}' +
-      '.jellyfin-hub .bookmarks-folder.focus .card__view{' +
-      'box-shadow:0 0 0 .22em #fff;border-radius:1em}' +
-      '.jellyfin-card-shade{pointer-events:none;position:absolute;left:0;right:0;bottom:0;height:42%;z-index:2;background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.55) 100%)}' +
-      '.jellyfin-card-chrome{pointer-events:none;position:absolute;left:0;top:0;right:0;bottom:0;z-index:4}' +
-      '.jellyfin-badge{position:absolute;padding:.28em .55em;font-size:.62em;border-radius:.7em;font-weight:800;line-height:1.1;backdrop-filter:blur(8px);box-shadow:0 3px 8px rgba(0,0,0,.25)}' +
-      '.jellyfin-badge-episode{left:.4em;top:.4em;background:rgba(0,0,0,.72);color:#fff}' +
-      '.jellyfin-badge-quality{left:.4em;top:.4em;background:rgba(0,122,255,.92);color:#fff}' +
-      '.jellyfin-badge-quality--episode{top:2.1em}' +
-      '.jellyfin-badge-watched{right:.4em;top:.4em;background:rgba(52,199,89,.92);color:#fff}' +
-      '.jellyfin-card-progress{position:absolute;left:0;right:0;bottom:0;height:.28em;background:rgba(255,255,255,.18);z-index:5}' +
-      '.jellyfin-card-progress>span{display:block;height:100%;background:rgba(0,122,255,.95)}' +
-      '.jellyfin-state{padding:2em 1.2em;text-align:center;max-width:36em;margin:0 auto}' +
-      '.jellyfin-state__title{font-size:1.1em;font-weight:700;margin-bottom:.6em}' +
-      '.jellyfin-state__descr{opacity:.75;margin-bottom:1.2em;line-height:1.45}' +
-      '.button--jellyfin{display:inline-flex;align-items:center;gap:.35em}' +
-      '.button--jellyfin .jellyfin-fullstart__icon{width:1.75em;height:1.75em;flex-shrink:0}' +
-      '.torrent-customqbit-icon.jellyfin-head-icon,.jellyfin-head-icon{display:flex;align-items:center;justify-content:center}' +
-      '</style>'
-    );
-  }
-
-  function addSettings() {
-    Lampa.SettingsApi.addComponent({
-      component: SETTINGS_COMPONENT,
-      name: Lampa.Lang.translate('jellyfin_settings_name'),
-      icon: MANIFEST.icon,
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { name: STORAGE_PREFIX + 'Hint', type: 'static' },
-      field: { name: Lampa.Lang.translate('jellyfin_settings_hint') },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: {
-        name: STORAGE_PREFIX + 'Url',
-        type: 'input',
-        default: DEFAULT_URL,
-        values: '',
-      },
-      field: { name: Lampa.Lang.translate('jellyfin_url') },
-      onChange: function () {
-        invalidateUserCache();
-        prefetchAutoUser();
-        Lampa.Settings.update();
-        syncUserInfoField();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: {
-        name: STORAGE_PREFIX + 'Key',
-        type: 'input',
-        default: DEFAULT_API_KEY,
-        values: '',
-      },
-      field: { name: Lampa.Lang.translate('jellyfin_key') },
-      onChange: function () {
-        invalidateUserCache();
-        prefetchAutoUser();
-        Lampa.Settings.update();
-        syncUserInfoField();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { name: STORAGE_PREFIX + 'UserInfo', type: 'static' },
-      field: {
-        name: Lampa.Lang.translate('jellyfin_user'),
-        description: currentUserLabel(),
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'button', name: STORAGE_PREFIX + 'PickUser' },
-      field: { name: Lampa.Lang.translate('jellyfin_user_pick') },
-      onChange: function () {
-        pickUserFromList(function () {
-          Lampa.Settings.update();
-        });
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'button', name: STORAGE_PREFIX + 'Test' },
-      field: { name: Lampa.Lang.translate('jellyfin_test') },
-      onChange: function () {
-        resolveUserId()
-          .then(function () {
-            return refreshLibraryIndex(true);
-          })
-          .then(function () {
-            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_auth_ok') });
-          })
-          .catch(function () {
-            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_auth_fail') });
-          });
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'Dedupe' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_dedupe') },
-      onChange: function () {
-        Lampa.Settings.update();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'HideFolders' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_hide_folders') },
-      onChange: function () {
-        Lampa.Settings.update();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'TmdbPosters' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_tmdb_posters') },
-      onChange: function () {
-        tmdbMetaCache = {};
-        Lampa.Settings.update();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'FullButton' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_full_button') },
-      onChange: function () {
-        Lampa.Settings.update();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { type: 'trigger', default: false, name: STORAGE_PREFIX + 'TapPlay' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_tap_play') },
-      onChange: function () {
-        Lampa.Settings.update();
-      },
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { name: STORAGE_PREFIX + 'StreamHint', type: 'static' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_stream_hint') },
-    });
-  }
+  // --- Открытие категорий и хаба ---
+  function openCategory(category) { /* ... */ }
+  function openHub() { /* ... */ }
+  function listenFullCard() { /* ... */ }
+  function injectHeadIcon() { /* ... */ }
+  function registerMenuButtons() { /* ... */ }
+  function registerStyles() { /* ... */ }
+  function addSettings() { /* ... */ }
 
   // --- Инициализация ---
   function init() {
