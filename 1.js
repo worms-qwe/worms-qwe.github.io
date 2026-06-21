@@ -1702,8 +1702,11 @@
   }
 
   function playSingleItem(row, allRows) {
+	console.error('row', row);
+	console.error('allRows', allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
+	  console.error('startTicks', startTicks);
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
@@ -1713,7 +1716,7 @@
               });
               Lampa.Player.playlist(playlist);
             }
-		        console.error('playObj1', playObj);
+			console.error('playObj1', playObj);
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
@@ -1732,7 +1735,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-		    console.error('playObj2', playObj);
+		console.error('playObj2', playObj);
         Lampa.Player.play(playObj);
       }
     });
