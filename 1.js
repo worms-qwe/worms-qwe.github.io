@@ -522,6 +522,7 @@
     if (!saved) return [];
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
     if (url) return [{ url: url, label: 'Subtitle' }];
+    // Если URL почему-то нет, формируем вручную (запасной вариант)
     var msId = saved.mediaSourceId || mediaSourceId(itemId);
     var base = apiBase();
     var key = apiKey();
@@ -529,7 +530,7 @@
     return [{ url: manualUrl, label: 'Subtitle' }];
   }
 
-  // === РАСШИРЕННЫЙ DEVICE PROFILE ===
+  // === ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ DEVICE PROFILE ===
   function getDeviceProfile() {
     return {
       MaxStreamingBitrate: 120000000,
@@ -543,21 +544,13 @@
       TranscodingProfiles: [
         { Container: 'ts', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 2, MinSegments: 1, BreakOnNonKeyFrames: false }
       ],
-      // ВАЖНО: добавляем оба метода для всех форматов
       SubtitleProfiles: [
-        { Format: 'vtt', Method: 'Embed' },
         { Format: 'vtt', Method: 'External' },
-        { Format: 'ass', Method: 'Embed' },
         { Format: 'ass', Method: 'External' },
-        { Format: 'ssa', Method: 'Embed' },
         { Format: 'ssa', Method: 'External' },
-        { Format: 'srt', Method: 'Embed' },
         { Format: 'srt', Method: 'External' },
-        { Format: 'subrip', Method: 'Embed' },
         { Format: 'subrip', Method: 'External' },
-        { Format: 'pgs', Method: 'Embed' },
         { Format: 'pgs', Method: 'External' },
-        { Format: 'dvdsub', Method: 'Embed' },
         { Format: 'dvdsub', Method: 'External' }
       ],
       CodecProfiles: [
@@ -566,74 +559,74 @@
     };
   }
 
-  // === ИСПРАВЛЕННАЯ fetchPlaybackInfoAndSaveStreams (POST с EnableAllSubtitleTracks) ===
+  // === ИСПРАВЛЕННАЯ fetchPlaybackInfoAndSaveStreams (POST с параметром в URL) ===
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
     var body = {
       UserId: userId,
       StartTimeTicks: 0,
       IsPlayback: true,
       AutoOpenLiveStream: true,
-      // Удаляем несуществующий параметр
+      EnableAllSubtitleTracks: true, // в теле
       DeviceProfile: getDeviceProfile()
     };
-  
-    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
+
+    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo?EnableAllSubtitleTracks=true', {
       method: 'POST',
       jsonBody: body,
       dataType: 'json'
     })
-    .then(function(info) {
-      if (info && info.MediaSources && info.MediaSources.length) {
-        var source = info.MediaSources[0];
-        var streams = source.MediaStreams || [];
-  
-        var audioIndex, subtitleIndex;
-        var subtitleUrls = {};
-        var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
-        if (defaultAudio) {
-          audioIndex = defaultAudio.Index;
-        } else {
-          var firstAudio = streams.find(function(s) { return s.Type === 'Audio'; });
-          audioIndex = firstAudio ? firstAudio.Index : undefined;
-        }
-  
-        var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
-        if (defaultSub) {
-          subtitleIndex = defaultSub.Index;
-        } else {
-          var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
-          subtitleIndex = firstSub ? firstSub.Index : undefined;
-        }
-  
-        var mediaSourceId = source.Id || mediaSourceId(itemId);
-  
-        streams.forEach(function(stream) {
-          if (stream.Type === 'Subtitle') {
-            console.error('Index', stream.Index);
-            console.error('DeliveryUrl', stream.DeliveryUrl);
-            console.error('Language', stream.Language);
-            console.error('Title', stream.stream.Title);
-            console.error('DisplayTitle', stream.DisplayTitle);
-            if (stream.DeliveryUrl) {
-              subtitleUrls[stream.Index] = apiBase() + stream.DeliveryUrl;
-            }
+      .then(function(info) {
+        if (info && info.MediaSources && info.MediaSources.length) {
+          var source = info.MediaSources[0];
+          var streams = source.MediaStreams || [];
+
+          var audioIndex, subtitleIndex;
+          var subtitleUrls = {};
+          var defaultAudio = streams.find(function(s) { return s.Type === 'Audio' && s.IsDefault === true; });
+          if (defaultAudio) {
+            audioIndex = defaultAudio.Index;
+          } else {
+            var firstAudio = streams.find(function(s) { return s.Type === 'Audio'; });
+            audioIndex = firstAudio ? firstAudio.Index : undefined;
           }
-        });
-  
-        if (audioIndex !== undefined) {
-          _savedStreams[itemId] = {
-            audio: audioIndex,
-            subtitle: subtitleIndex,
-            subtitleUrls: subtitleUrls,
-            mediaSourceId: mediaSourceId
-          };
+
+          var defaultSub = streams.find(function(s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
+          if (defaultSub) {
+            subtitleIndex = defaultSub.Index;
+          } else {
+            var firstSub = streams.find(function(s) { return s.Type === 'Subtitle'; });
+            subtitleIndex = firstSub ? firstSub.Index : undefined;
+          }
+
+          var mediaSourceId = source.Id || mediaSourceId(itemId);
+
+          // Добавляем все субтитры, даже если нет DeliveryUrl
+          streams.forEach(function(stream) {
+            if (stream.Type === 'Subtitle') {
+              var url;
+              if (stream.DeliveryUrl) {
+                url = apiBase() + stream.DeliveryUrl;
+              } else {
+                url = apiBase() + '/Videos/' + encodeURIComponent(itemId) + '/' + encodeURIComponent(mediaSourceId) + '/Subtitles/' + stream.Index + '/stream.vtt?api_key=' + encodeURIComponent(apiKey());
+              }
+              subtitleUrls[stream.Index] = url;
+            }
+          });
+
+          if (audioIndex !== undefined) {
+            _savedStreams[itemId] = {
+              audio: audioIndex,
+              subtitle: subtitleIndex,
+              subtitleUrls: subtitleUrls,
+              mediaSourceId: mediaSourceId
+            };
+          }
         }
-      }
-      return info;
-    })
-    .catch(function(e) {
-      console.error('Failed to fetch PlaybackInfo:', e);
-    });
+        return info;
+      })
+      .catch(function(e) {
+        console.error('Failed to fetch PlaybackInfo:', e);
+      });
   }
 
   function streamUrl(itemId, opts) {
@@ -681,7 +674,7 @@
     parts.push('SegmentContainer=ts');
     parts.push('MinSegments=1');
     parts.push('h264-rangetype=SDR');
-    parts.push('alwaysBurnInSubtitleWhenTranscoding=false');
+    parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
     parts.push('SubtitleCodec=subrip');
     parts.push('SubtitleFormat=subrip');
     parts.push('SubtitleMethod=External');
