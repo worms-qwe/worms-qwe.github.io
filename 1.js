@@ -550,8 +550,8 @@
           { "Container": "hls", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac,mp3,mp2" }
         ],
         "TranscodingProfiles": [
-          { "Container": "mp4", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false, "EnableAudioVbrEncoding": true },
-          { "Container": "mp4", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "av1,h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false },
+          { "Container": "ts", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false, "EnableAudioVbrEncoding": true },
+          { "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "av1,h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false },
           { "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false }
         ],
         "ContainerProfiles": [],
@@ -559,16 +559,16 @@
           { "Type": "VideoAudio", "Codec": "aac", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
           { "Type": "VideoAudio", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
           { "Type": "Video", "Codec": "h264", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "high|main|baseline|constrained baseline|high 10", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false }, { "Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false } ] },
-          { "Type": "Video", "Codec": "vp9", "Conditions": [ { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HDR10Plus|HLG", "IsRequired": false } ] },
           { "Type": "Video", "Codec": "av1", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR|HDR10|HDR10Plus|HLG", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "19", "IsRequired": false } ] }
         ],
         "SubtitleProfiles": [
           { "Format": "subrip", "Method": "External" },
           { "Format": "ass", "Method": "External" },
           { "Format": "ssa", "Method": "External" }
-        ],
-        "ResponseProfiles": [
-          { "Type": "Video", "Container": "m4v", "MimeType": "video/mp4" }
+        //],
+        [
+        //"ResponseProfiles": [
+        //  { "Type": "Video", "Container": "m4v", "MimeType": "video/mp4" }
         ]
       }
     };
