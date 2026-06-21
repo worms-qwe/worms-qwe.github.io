@@ -517,47 +517,14 @@
   
     remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
   
-    var postBody = {
+	 var postBody = {
       UserId: userId,
       //DeviceId: getDeviceId(),
       StartTimeTicks: startTicks,
       IsPlayback: true,
       AutoOpenLiveStream: true,
       MaxStreamingBitrate: 815559111,
-      AlwaysBurnInSubtitleWhenTranscoding: false,
-      DeviceProfile: {
-        "MaxStreamingBitrate": 815559111,
-        "MaxStaticBitrate": 815559111,
-        "MusicStreamingTranscodingBitrate": 384000,
-        "DirectPlayProfiles": [
-          { "Container": "webm", "Type": "Video", "VideoCodec": "vp9", "AudioCodec": "vorbis,opus" },
-          //{ "Container": "mp4,m4v", "Type": "Video", "VideoCodec": "h264,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
-          //{ "Container": "mkv", "Type": "Video", "VideoCodec": "h264,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
-          { "Container": "ts", "AudioCodec": "mp3", "Type": "Audio" },
-          { "Container": "mp3", "Type": "Audio" },
-          { "Container": "ogg", "Type": "Audio" },
-          //{ "Container": "hls", "Type": "Video", "VideoCodec": "av1,h264", "AudioCodec": "aac,mp2,opus,flac" },
-          //{ "Container": "hls", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac,mp3,mp2" }
-        ],
-        "TranscodingProfiles": [
-          { "Container": "ts", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false, "EnableAudioVbrEncoding": true },
-          //{ "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false },
-          { "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "6", "MinSegments": "1", "BreakOnNonKeyFrames": false }
-        ],
-        "ContainerProfiles": [],
-        "CodecProfiles": [
-          { "Type": "VideoAudio", "Codec": "aac", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
-          { "Type": "Video", "Codec": "h264", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "high|main|baseline|constrained baseline", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false }, { "Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false } ] }
-        ],
-        "SubtitleProfiles": [
-          { "Format": "subrip", "Method": "External" },
-          { "Format": "ass", "Method": "External" },
-          { "Format": "ssa", "Method": "External" }
-        ],
-        "ResponseProfiles": [
-          { "Type": "Video", "Container": "m4v", "MimeType": "video/mp4" }
-        ]
-      }
+      AlwaysBurnInSubtitleWhenTranscoding: false
     };
   
     remoteLog('[Jellyfin] POST body (full DeviceProfile):', postBody);
