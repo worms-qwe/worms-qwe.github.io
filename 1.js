@@ -1711,11 +1711,14 @@
 		console.error('transcodingEnabled', 'true');
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
+			console.error('1', '');
             if (allRows && allRows.length > 1) {
+			  console.error('allRows.length', allRows.length);
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
               });
               Lampa.Player.playlist(playlist);
+			  console.error('playlist', playlist);
             }
 			console.error('playObj1', playObj);
             Lampa.Player.play(playObj);
