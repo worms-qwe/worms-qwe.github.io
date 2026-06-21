@@ -64,7 +64,39 @@
     h264Level: '51'
   };
 
-  // --- Вспомогательные функции ---
+  // --- Функция удалённого логирования ---
+  function remoteLog() {
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function (arg) {
+      if (typeof arg === 'object') {
+        try {
+          return JSON.stringify(arg);
+        } catch (e) {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    }).join(' ');
+
+    // Отправляем на сервер, если указан URL
+    var logUrl = storageStr('LogUrl', '');
+    if (logUrl) {
+      try {
+        $.ajax({
+          url: logUrl,
+          type: 'POST',
+          data: JSON.stringify({ message: message }),
+          contentType: 'application/json',
+          timeout: 2000
+        });
+      } catch (e) {}
+    }
+
+    // Дублируем в консоль
+    console.log.apply(console, args);
+  }
+
+  // --- Вспомогательные функции (без изменений) ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -141,6 +173,7 @@
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
       jellyfin_user_auto: { en: 'First user (auto)', ru: 'Первый пользователь (авто)' },
+      jellyfin_log_url: { en: 'Log URL (optional)', ru: 'URL для логов (опционально)' },
     });
   }
 
@@ -487,7 +520,7 @@
     var startTicks = opts.startTicks || 0;
     var mediaSourceId = opts.mediaSourceId;
 
-    console.log('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks });
+    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, mediaSourceId, audioIndex, subIndex, startTicks });
 
     var postBody = {
       UserId: userId,
@@ -531,16 +564,16 @@
       postBody.SubtitleStreamIndex = subIndex;
     }
 
-    console.log('[Jellyfin] POST body:', postBody);
+    remoteLog('[Jellyfin] POST body:', postBody);
 
     return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
       method: 'POST',
       jsonBody: postBody
     }).then(function (response) {
-      console.log('[Jellyfin] PlaybackInfo response:', response);
+      remoteLog('[Jellyfin] PlaybackInfo response:', response);
       return response;
     }).catch(function (err) {
-      console.error('[Jellyfin] PlaybackInfo error:', err);
+      remoteLog('[Jellyfin] PlaybackInfo error:', err);
       throw err;
     });
   }
@@ -557,35 +590,34 @@
   // --- Функция создания объекта для плеера (с fallback) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
-    console.log('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
+    remoteLog('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
 
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
-        console.log('[Jellyfin] buildPlayObject got info', info);
+        remoteLog('[Jellyfin] buildPlayObject got info', info);
         var sources = info.MediaSources || [];
         // Ищем источник с поддержкой транскодирования
         var src = sources.find(function (s) { return s.SupportsTranscoding === true; }) || sources[0];
         if (!src) {
           throw new Error('No suitable MediaSource found');
         }
-        console.log('[Jellyfin] Selected source:', src);
+        remoteLog('[Jellyfin] Selected source:', src);
 
         var fullUrl = null;
         if (src.TranscodingUrl) {
           var rawUrl = src.TranscodingUrl;
           var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
           fullUrl = apiBase() + fixedUrl;
-          console.log('[Jellyfin] Using TranscodingUrl:', fullUrl);
+          remoteLog('[Jellyfin] Using TranscodingUrl:', fullUrl);
         } else if (src.DirectStreamUrl) {
           var rawDirect = src.DirectStreamUrl;
           var fixedDirect = rawDirect.replace(/\\u0026/g, '&');
           fullUrl = apiBase() + fixedDirect;
-          console.log('[Jellyfin] Using DirectStreamUrl:', fullUrl);
+          remoteLog('[Jellyfin] Using DirectStreamUrl:', fullUrl);
         } else {
-          // Fallback: генерируем URL через streamUrl
-          console.warn('[Jellyfin] No TranscodingUrl or DirectStreamUrl, using fallback streamUrl');
+          remoteLog('[Jellyfin] No TranscodingUrl or DirectStreamUrl, using fallback streamUrl');
           fullUrl = streamUrl(itemId, { userId: userId, startTicks: startTicks, mediaSourceId: src.Id });
-          console.log('[Jellyfin] Fallback URL:', fullUrl);
+          remoteLog('[Jellyfin] Fallback URL:', fullUrl);
         }
 
         if (!fullUrl) {
@@ -613,7 +645,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-        console.log('[Jellyfin] final playObj:', playObj);
+        remoteLog('[Jellyfin] final playObj:', playObj);
         return playObj;
       });
   }
@@ -661,7 +693,7 @@
   // --- Настройка дорожек и субтитров в плеере ---
   function setupTracksForJellyfin() {
     Lampa.Player.listener.follow('ready', function (data) {
-      console.log('[Jellyfin] Player ready event', data);
+      remoteLog('[Jellyfin] Player ready event', data);
       if (!currentMediaStreams || !currentMediaStreams.length) return;
 
       var audioStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Audio'; });
@@ -1722,7 +1754,7 @@
 
   // --- Основные функции воспроизведения ---
   function playRow(row, allRows) {
-    console.log('[Jellyfin] playRow called', row, allRows);
+    remoteLog('[Jellyfin] playRow called', row, allRows);
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
@@ -1754,7 +1786,7 @@
         playSingleItem(row, rows);
       })
       .catch(function (e) {
-        console.error('[Jellyfin] playRow error:', e);
+        remoteLog('[Jellyfin] playRow error:', e);
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
@@ -1764,14 +1796,14 @@
   }
 
   function playSingleItem(row, allRows) {
-    console.log('[Jellyfin] playSingleItem', row, allRows);
+    remoteLog('[Jellyfin] playSingleItem', row, allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
-      console.log('[Jellyfin] transcodingEnabled:', transcodingEnabled());
+      remoteLog('[Jellyfin] transcodingEnabled:', transcodingEnabled());
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
-            console.log('[Jellyfin] About to call Lampa.Player.play with', playObj);
+            remoteLog('[Jellyfin] About to call Lampa.Player.play with', playObj);
             if (allRows && allRows.length > 1) {
               var playlist = allRows.map(function (r) {
                 return { title: r.title, url: playObj.url };
@@ -1781,7 +1813,7 @@
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
-            console.error('[Jellyfin] buildPlayObject error:', e);
+            remoteLog('[Jellyfin] buildPlayObject error:', e);
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
           });
       } else {
@@ -1796,7 +1828,7 @@
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
         }
-        console.log('[Jellyfin] External player playObj', playObj);
+        remoteLog('[Jellyfin] External player playObj', playObj);
         Lampa.Player.play(playObj);
       }
     });
@@ -2404,6 +2436,15 @@
         prefetchAutoUser();
         Lampa.Settings.update();
         syncUserInfoField();
+      },
+    });
+
+    Lampa.SettingsApi.addParam({
+      component: SETTINGS_COMPONENT,
+      param: { name: STORAGE_PREFIX + 'LogUrl', type: 'input', default: '', values: '' },
+      field: { name: Lampa.Lang.translate('jellyfin_log_url') },
+      onChange: function () {
+        Lampa.Settings.update();
       },
     });
 
