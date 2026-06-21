@@ -46,8 +46,10 @@
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
 
+  // Хранилище выбранных индексов для каждого itemId
   var _savedStreams = {};
 
+  // === НОВЫЕ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ТЕКУЩЕЙ СЕССИИ ===
   var currentMediaSourceId = null;
   var currentPlaySessionId = null;
 
@@ -470,10 +472,34 @@
       audioBitrate: 384000,
       h264Level: '42',
     },
+    //'1080p': {
+    //  maxWidth: 1920,
+    //  videoBitrate: 20000000,
+    //  maxStreamingBitrate: 80000000,
+    //  audioBitrate: 384000,
+    //  h264Level: '51',
+    //},
+    //'1440p': {
+    //  maxWidth: 2560,
+    //  videoBitrate: 35000000,
+    //  maxStreamingBitrate: 100000000,
+    //  audioBitrate: 384000,
+    //  h264Level: '51',
+    //},
+    //'2160p': {
+    //  maxWidth: 3840,
+    //  videoBitrate: 60000000,
+    //  maxStreamingBitrate: 120000000,
+    //  audioBitrate: 640000,
+    //  h264Level: '52',
+    //},
   };
 
   var PLAYER_TRANSCODE_QUALITIES = [
     { key: '720p', preset: '720p' },
+    //{ key: '1080p', preset: '1080p' },
+    //{ key: '1440p', preset: '1440p' },
+    //{ key: '2160p', preset: '2160p' },
   ];
 
   function defaultTranscodePresetKey() {
@@ -483,8 +509,12 @@
         Lampa.Storage.get('video_quality_default', '1080'),
         10
       );
+      //if (def >= 2160) return '2160p';
+      //if (def >= 1440) return '1440p';
+      //if (def >= 1080) return '1080p';
       return '720p';
     } catch (e) {
+      //return '1080p';
       return '720p';
     }
   }
@@ -502,8 +532,8 @@
     parts.push('MaxWidth=' + quality.maxWidth);
     parts.push('h264-profile=high,main,baseline,constrainedbaseline');
     parts.push('h264-level=' + quality.h264Level);
-    parts.push('h264-videobitdepth=8');
-    parts.push('h264-deinterlace=true');
+  	parts.push('h264-videobitdepth=8');
+  	parts.push('h264-deinterlace=true');
     parts.push('h264-rangetype=SDR');
     parts.push('TranscodingMaxAudioChannels=6');
   }
@@ -521,14 +551,11 @@
     var saved = _savedStreams[itemId];
     if (!saved) return [];
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
-    if (url) return [{ url: url, label: 'Subtitle' }];
-    var msId = saved.mediaSourceId || mediaSourceId(itemId);
-    var base = apiBase();
-    var key = apiKey();
-    var manualUrl = base + '/Videos/' + encodeURIComponent(itemId) + '/' + encodeURIComponent(msId) + '/Subtitles/' + subtitleIndex + '/stream.vtt?api_key=' + encodeURIComponent(key);
-    return [{ url: manualUrl, label: 'Subtitle' }];
+    if (!url) return [];
+    return [{ url: url, label: 'Subtitle' }];
   }
 
+  // Функция получения PlaybackInfo и сохранения индексов по IsDefault
   function fetchPlaybackInfoAndSaveStreams(itemId, userId) {
     return jfHttp('/Items/' + encodeURIComponent(itemId) +
               '/PlaybackInfo?UserId=' + encodeURIComponent(userId) +
@@ -556,13 +583,11 @@
             subtitleIndex = firstSub ? firstSub.Index : undefined;
           }
 
-          var mediaSourceId = source.Id || mediaSourceId(itemId);
-
+          // Собираем все субтитры и их DeliveryUrl
           streams.forEach(function(stream) {
-            if (stream.Type === 'Subtitle') {
-              if (stream.DeliveryUrl) {
-                subtitleUrls[stream.Index] = apiBase() + stream.DeliveryUrl;
-              }
+            if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+              var fullUrl = apiBase() + stream.DeliveryUrl;
+              subtitleUrls[stream.Index] = fullUrl;
             }
           });
 
@@ -570,8 +595,7 @@
             _savedStreams[itemId] = {
               audio: audioIndex,
               subtitle: subtitleIndex,
-              subtitleUrls: subtitleUrls,
-              mediaSourceId: mediaSourceId
+              subtitleUrls: subtitleUrls
             };
           }
         }
@@ -582,11 +606,13 @@
       });
   }
 
+  // === ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с поддержкой MediaSourceId и PlaySessionId ===
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
     if (!id) return '';
 
+    // Используем переданный mediaSourceId, если есть, иначе генерируем из itemId
     var srcId = opts.mediaSourceId || mediaSourceId(id);
 
     var parts = [
@@ -598,6 +624,7 @@
     if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
     if (opts.playSessionId) parts.push('PlaySessionId=' + encodeURIComponent(opts.playSessionId));
 
+    // Используем сохранённые индексы для данного itemId, если они есть
     var saved = _savedStreams[id];
     if (opts.audioStreamIndex === undefined && saved && saved.audio !== undefined) {
       opts.audioStreamIndex = saved.audio;
@@ -613,10 +640,12 @@
       parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
     }
 
+    // Добавляем случайный параметр для обхода кэша (опционально)
     parts.push('_=' + Date.now());
 
     if (!transcodingEnabled()) {
       parts.push('Static=true');
+      console.error('url1', apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&'));
       return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
     }
 
@@ -628,14 +657,46 @@
     parts.push('MinSegments=1');
     parts.push('h264-rangetype=SDR');
     parts.push('alwaysBurnInSubtitleWhenTranscoding=true');
-    parts.push('SubtitleCodec=subrip');
+    ///////////////////////////////////////
+  	//parts.push('SubtitleCodec=srt');
+  	//parts.push('SubtitleCodec=ass');
+  	//parts.push('SubtitleCodec=ssa');
+  	//parts.push('SubtitleCodec=smi');
+  	parts.push('SubtitleCodec=subrip');
+  	//parts.push('SubtitleCodec=sub');
+  	//parts.push('SubtitleCodec=dvdsub');
+  	//parts.push('SubtitleCodec=pgs');
+  	//parts.push('SubtitleCodec=pgssub');
+    ///////////////////////////////////////
+    //parts.push('SubtitleFormat=srt');
+    //parts.push('SubtitleFormat=ass');
+    //parts.push('SubtitleFormat=ssa');
+    //parts.push('SubtitleFormat=smi');
     parts.push('SubtitleFormat=subrip');
+    //parts.push('SubtitleFormat=sub');
+    //parts.push('SubtitleFormat=dvdsub');
+    //parts.push('SubtitleFormat=pgs');
+    //parts.push('SubtitleFormat=pgssub');
+    ///////////////////////////////////////
+  	//parts.push('SubtitleMethod=Embed');
     parts.push('SubtitleMethod=External');
+    //parts.push('SubtitleMethod=Encode');
+    ///////////////////////////////////////
+    //parts.push('SubtitleDeliveryMethod=Embed');
     parts.push('SubtitleDeliveryMethod=External');
+    ///////////////////////////////////////
+    ///////////////////////////////////////
+    //parts.push('TranscodeReasons=VideoCodecNotSupported');
+    //parts.push('TranscodeReasons=AudioCodecNotSupported');
+    //parts.push('TranscodeReasons=ContainerBitrateExceedsLimit');
+    //parts.push('TranscodeReasons=VideoLevelNotSupported');
+    ///////////////////////////////////////
+    //parts.push('RequireAvc=true');
     parts.push('BreakOnNonKeyFrames=False');
     parts.push('EnableAudioVbrEncoding=true');
 
     appendTranscodeQualityParams(parts, opts.qualityPreset);
+    console.error('url2', apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&'));
     return apiBase() + '/Videos/' + encodeURIComponent(id) + '/master.m3u8?' + parts.join('&');
   }
 
@@ -648,28 +709,31 @@
     return map;
   }
 
-  // === ОБНОВЛЁННАЯ playItemFromRow с единообразной структурой ===
   function playItemFromRow(row, userId, includeMovie) {
     var opts = { userId: userId, startTicks: rowStartTicks(row) };
     var qualityMap = buildStreamQualityMap(row.id, opts);
     var item = {
       title: row.title,
       url: streamUrl(row.id, opts),
-      movie: row.raw, // всегда передаём movie
     };
-    if (qualityMap) item.quality = qualityMap;
     if (row.resumeSec > 0) {
       item.timeline = includeMovie
         ? { time: row.resumeSec, duration: 0, percent: 0 }
         : { time: row.resumeSec };
     }
+    if (qualityMap) item.quality = qualityMap;
+    if (includeMovie) item.movie = row.raw;
+
+    // Добавляем субтитры, если есть
     var saved = _savedStreams[row.id];
-    if (saved && saved.subtitle !== undefined) {
-      var subs = getSubtitlesArray(row.id, saved.subtitle);
-      if (subs.length) {
-        item.subtitles = subs;
-      }
+    if (saved && saved.subtitle !== undefined && saved.subtitleUrls) {
+        var subIndex = saved.subtitle;
+        var url = saved.subtitleUrls[subIndex];
+        if (url) {
+            item.subtitles = [{ url: url, label: 'Subtitle' }];
+        }
     }
+
     return item;
   }
 
@@ -696,7 +760,10 @@
 
   function detectQuality(name) {
     var n = String(name || '');
+    //if (/2160p|\b4K\b/i.test(n)) return '4K';
+    //if (/1080p/i.test(n)) return '1080p';
     if (/720p/i.test(n)) return '720p';
+    //if (/HDR/i.test(n)) return 'HDR';
     return '';
   }
 
@@ -2417,6 +2484,7 @@
     });
   }
 
+  // === ОБНОВЛЁННАЯ ФУНКЦИЯ setupTracksForJellyfin с сохранением MediaSourceId и PlaySessionId и передачей субтитров ===
   function setupTracksForJellyfin() {
     var currentMovie = null;
     var currentUserId = null;
@@ -2507,6 +2575,7 @@
         if (!info || !info.MediaSources || !info.MediaSources.length) return;
         var source = info.MediaSources[0];
         if (source) {
+          // Сохраняем реальный MediaSourceId и PlaySessionId
           currentMediaSourceId = source.Id;
           currentPlaySessionId = info.PlaySessionId || null;
         }
