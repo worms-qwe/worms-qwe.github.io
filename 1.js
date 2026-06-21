@@ -544,9 +544,13 @@
   // --- Функция создания объекта для плеера (для внутреннего плеера с транскодированием) ---
   function buildPlayObject(row, userId, startTicks) {
     var itemId = row.id;
+	console.error('', '---buildPlayObject---');
+	console.error('itemId', itemId);
+	console.error('fetchPlaybackInfo', fetchPlaybackInfo(itemId, userId, { startTicks: startTicks }) );
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         var src = info.MediaSources[0];
+		console.error('info.MediaSources[0]', info.MediaSources[0]);
         if (!src || !src.TranscodingUrl) {
           throw new Error('No TranscodingUrl in PlaybackInfo response');
         }
