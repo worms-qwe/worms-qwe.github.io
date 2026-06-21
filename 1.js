@@ -64,7 +64,7 @@
     h264Level: '51'
   };
 
-  // --- Вспомогательные функции (без изменений) ---
+  // --- Вспомогательные функции ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -558,7 +558,6 @@
     var itemId = row.id;
     console.log('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
 
-    // Сначала делаем запрос без MediaSourceId, чтобы получить дефолтный источник
     return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
       .then(function (info) {
         console.log('[Jellyfin] buildPlayObject got info', info);
@@ -581,8 +580,11 @@
         currentPlaySessionId = info.PlaySessionId;
         currentMediaStreams = streams;
 
-        var fullUrl = apiBase() + src.TranscodingUrl;
-        console.log('[Jellyfin] Full URL:', fullUrl);
+        // Исправляем URL: заменяем \u0026 на &
+        var rawUrl = src.TranscodingUrl;
+        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+        var fullUrl = apiBase() + fixedUrl;
+        console.log('[Jellyfin] Full URL (fixed):', fullUrl);
 
         var playObj = {
           title: row.title,
@@ -616,7 +618,9 @@
       if (subIdx !== undefined) currentSubtitleIndex = subIdx;
       currentMediaSourceId = src.Id;
 
-      var fullUrl = apiBase() + src.TranscodingUrl;
+      var rawUrl = src.TranscodingUrl;
+      var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
+      var fullUrl = apiBase() + fixedUrl;
 
       var currentPlay = Lampa.Player.playdata();
       if (currentPlay) {
@@ -675,7 +679,9 @@
           mode: selected ? 'showing' : 'disabled'
         };
         if (stream.DeliveryUrl) {
-          sub.url = apiBase() + stream.DeliveryUrl;
+          // Исправляем URL субтитров – тоже заменяем \u0026 на & (если есть)
+          var fixedSubUrl = stream.DeliveryUrl.replace(/\\u0026/g, '&');
+          sub.url = apiBase() + fixedSubUrl;
         }
         Object.defineProperty(sub, 'mode', {
           set: function (v) {
