@@ -522,6 +522,8 @@
     var saved = _savedStreams[itemId];
     if (!saved) return [];
     var track = saved.subtitleTracks ? saved.subtitleTracks.find(function(t) { return t.index === subtitleIndex; }) : null;
+    console.error('track.displayTitle', track.displayTitle);
+    console.error('track', track);
     if (track && track.url) return [{ url: track.url, label: track.displayTitle || track.language || 'Subtitle' }];
     // Fallback: если нет в subtitleTracks, пытаемся по старым ключам
     var url = saved.subtitleUrls && saved.subtitleUrls[subtitleIndex];
@@ -578,23 +580,43 @@
         // Теперь POST с правильными параметрами
         var postBody = {
           UserId: userId,
+          SubtitleStreamIndex: subtitleIndex !== undefined ? subtitleIndex : undefined,
           MediaSourceId: mediaSourceId,
           StartTimeTicks: 0,
           IsPlayback: true,
           AutoOpenLiveStream: true,
+          AudioStreamIndex: tempData.audioIndex,
+          MaxStreamingBitrate: 879704210,
           AlwaysBurnInSubtitleWhenTranscoding: false,
-          SubtitleProfiles: [
-            { Format: 'ass', Method: 'External' },
-            { Format: 'subrip', Method: 'External' }
-          ],
-          // Если есть выбранный индекс субтитров, передаём его
-          SubtitleStreamIndex: subtitleIndex !== undefined ? subtitleIndex : undefined,
-          DirectPlayProfiles: [
-            { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
-          ],
-          TranscodingProfiles: [
-            { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac' }
-          ]
+          DeviceProfile: {
+            MaxStreamingBitrate: 120000000,
+            MaxStaticBitrate: 100000000,
+            MusicStreamingTranscodingBitrate: 384000,
+            DirectPlayProfiles: [
+              { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3' },
+              { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
+              { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac' },
+              { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3' }
+            ],
+            TranscodingProfiles: [
+              { Container: 'mp4', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
+              { Container: 'mp4', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false },
+              { Container: 'ts', Type: 'Video', AudioCodec: 'aac,mp3,mp2', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false }
+            ],
+            ContainerProfiles: [],
+            CodecProfiles: [
+              { Type: 'VideoAudio', Codec: 'aac', Conditions: [ { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false } ] },
+              { Type: 'VideoAudio', Conditions: [ { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false } ] },
+              { Type: 'Video', Codec: 'h264', Conditions: [ { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline|high 10', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false }, { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: '52', IsRequired: false }, { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false } ] }
+            ],
+            SubtitleProfiles: [
+              { Format: 'subrip', Method: 'External' },
+              { Format: 'ssa', Method: 'External' }
+            ],
+            ResponseProfiles: [
+              { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
+            ]
+          }
         };
 
         return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
