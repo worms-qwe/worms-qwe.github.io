@@ -569,7 +569,6 @@
       remoteLog('[Jellyfin] PlaybackInfo response:', response);
       return response;
     }).catch(function (err) {
-      remoteLog('[Jellyfin] PlaybackInfo error:', err);
       throw err;
     });
   }
@@ -687,7 +686,6 @@
   // --- Настройка дорожек и субтитров в плеере ---
   function setupTracksForJellyfin() {
     Lampa.Player.listener.follow('ready', function (data) {
-      remoteLog('[Jellyfin] Player ready event', data);
       if (!currentMediaStreams || !currentMediaStreams.length) return;
 
       var audioStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Audio'; });
@@ -1748,7 +1746,6 @@
 
   // --- Основные функции воспроизведения ---
   function playRow(row, allRows) {
-    remoteLog('[Jellyfin] playRow called', row, allRows);
     var rows = allRows && allRows.length ? allRows : [row];
     resolveUserId()
       .then(function (userId) {
@@ -1780,7 +1777,6 @@
         playSingleItem(row, rows);
       })
       .catch(function (e) {
-        remoteLog('[Jellyfin] playRow error:', e);
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
@@ -1790,10 +1786,8 @@
   }
 
   function playSingleItem(row, allRows) {
-    remoteLog('[Jellyfin] playSingleItem', row, allRows);
     resolveUserId().then(function (userId) {
       var startTicks = rowStartTicks(row);
-      remoteLog('[Jellyfin] transcodingEnabled:', transcodingEnabled());
       if (transcodingEnabled()) {
         buildPlayObject(row, userId, startTicks)
           .then(function (playObj) {
@@ -1807,7 +1801,6 @@
             Lampa.Player.play(playObj);
           })
           .catch(function (e) {
-            remoteLog('[Jellyfin] buildPlayObject error:', e);
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
           });
       } else {
