@@ -54,6 +54,8 @@
   var currentMediaStreams = [];
   var currentAudioIndex = null;
   var currentSubtitleIndex = null;
+  var currentSubtitleDeliveryUrl = null;
+  var currentDisplayTitle = null;
 
   // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
   var TRANSCODE_QUALITY = {
@@ -638,6 +640,8 @@
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
         currentAudioIndex = defAudio ? defAudio.Index : undefined;
         currentSubtitleIndex = defSub ? defSub.Index : undefined;
+		currentSubtitleDeliveryUrl = defSub ? defSub.DeliveryUrl : undefined;
+		currentDisplayTitle = defSub ? defSub.DisplayTitle : undefined;
         currentItemId = itemId;
         currentUserId = userId;
         currentMediaSourceId = src.Id;
@@ -648,7 +652,8 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-          timeline: { time: startTicks / 10000000 }
+          timeline: { time: startTicks / 10000000 };
+		  subtitles: { url: currentSubtitleDeliveryUrl, label: currentDisplayTitle }
         };
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
