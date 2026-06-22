@@ -511,57 +511,68 @@
   }
 
   // --- Функция для запроса PlaybackInfo (POST) с возможностью принудительного транскодирования ---
-  function fetchPlaybackInfo(itemId, userId, opts) {
-    opts = opts || {};
-    var startTicks = opts.startTicks || 0;
-  
-    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
-  
-    var postBody = {
-      UserId: userId,
-      //DeviceId: getDeviceId(),
-      StartTimeTicks: startTicks,
-      IsPlayback: true,
-      AutoOpenLiveStream: true,
-      MaxStreamingBitrate: 815559111,
-      AlwaysBurnInSubtitleWhenTranscoding: false,
-      DeviceProfile: {
-        "MaxStreamingBitrate": 815559111,
-        "MaxStaticBitrate": 815559111,
+  var postBody = {
+    UserId: userId,
+    DeviceId: getDeviceId(),
+    StartTimeTicks: startTicks,
+    IsPlayback: true,
+    AutoOpenLiveStream: true,
+    MaxStreamingBitrate: 690826541,
+    AlwaysBurnInSubtitleWhenTranscoding: false,
+    DeviceProfile: {
+        "MaxStreamingBitrate": 120000000,
+        "MaxStaticBitrate": 100000000,
         "MusicStreamingTranscodingBitrate": 384000,
         "DirectPlayProfiles": [
-          { "Container": "webm", "Type": "Video", "VideoCodec": "vp9", "AudioCodec": "vorbis,opus" },
-          //{ "Container": "mp4,m4v", "Type": "Video", "VideoCodec": "h264,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
-          //{ "Container": "mkv", "Type": "Video", "VideoCodec": "h264,av1", "AudioCodec": "aac,mp3,mp2,opus,flac,vorbis" },
-          { "Container": "ts", "AudioCodec": "mp3", "Type": "Audio" },
-          { "Container": "mp3", "Type": "Audio" },
-          { "Container": "ogg", "Type": "Audio" },
-          //{ "Container": "hls", "Type": "Video", "VideoCodec": "av1,h264", "AudioCodec": "aac,mp2,opus,flac" },
-          //{ "Container": "hls", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac,mp3,mp2" }
+          {"Container":"mp4,m4v","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
+          {"Container":"mkv","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
+          {"Container":"mov","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"},
+          {"Container":"ts","AudioCodec":"mp3","Type":"Audio"},
+          {"Container":"mp3","Type":"Audio"},
+          {"Container":"aac","Type":"Audio"},
+          {"Container":"wav","Type":"Audio"},
+          {"Container":"ogg","Type":"Audio"},
+          {"Container":"hls","Type":"Video","VideoCodec":"av1,h264","AudioCodec":"aac,mp2"},
+          {"Container":"hls","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"}
         ],
         "TranscodingProfiles": [
-          { "Container": "ts", "Type": "Audio", "AudioCodec": "aac", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false, "EnableAudioVbrEncoding": true },
-          //{ "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "2", "MinSegments": "1", "BreakOnNonKeyFrames": false },
-          { "Container": "ts", "Type": "Video", "AudioCodec": "aac", "VideoCodec": "h264", "Context": "Streaming", "Protocol": "hls", "MaxAudioChannels": "6", "MinSegments": "1", "BreakOnNonKeyFrames": false }
+          {"Container":"ts","Type":"Audio","AudioCodec":"aac","Context":"Streaming","Protocol":"hls","MaxAudioChannels":"6","MinSegments":"1","BreakOnNonKeyFrames":false,"EnableAudioVbrEncoding":true},
+          {"Container":"aac","Type":"Audio","AudioCodec":"aac","Context":"Static","Protocol":"hls","MaxAudioChannels":6},
+          {"Container":"ts","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":640,"IsRequired":false}]}
         ],
         "ContainerProfiles": [],
         "CodecProfiles": [
-          { "Type": "VideoAudio", "Codec": "aac", "Conditions": [ { "Condition": "Equals", "Property": "IsSecondaryAudio", "Value": "false", "IsRequired": false } ] },
-          { "Type": "Video", "Codec": "h264", "Conditions": [ { "Condition": "NotEquals", "Property": "IsAnamorphic", "Value": "true", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoProfile", "Value": "high|main|baseline|constrained baseline", "IsRequired": false }, { "Condition": "EqualsAny", "Property": "VideoRangeType", "Value": "SDR", "IsRequired": false }, { "Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false }, { "Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false } ] }
+          {"Type":"VideoAudio","Codec":"aac","Conditions":[{"Condition":"Equals","Property":"IsSecondaryAudio","Value":"false","IsRequired":false}]},
+          {"Type":"Audio","Conditions":[{"Condition":"LessThanEqual","Property":"AudioChannels","Value":6,"IsRequired":false}]},
+          {"Type":"VideoAudio","Conditions":[{"Condition":"LessThanEqual","Property":"AudioChannels","Value":6,"IsRequired":false},{"Condition":"Equals","Property":"IsSecondaryAudio","Value":"false","IsRequired":false}]},
+          {"Type":"Video","Codec":"h264","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"high|main|baseline|constrained baseline","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":52,"IsRequired":false},{"Condition":"NotEquals","Property":"IsInterlaced","Value":"true","IsRequired":false}]},
+          {"Type":"Video","Codec":"av1","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"main","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":19,"IsRequired":false}]},
+          {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":640,"IsRequired":false}]}
         ],
         "SubtitleProfiles": [
-          { "Format": "subrip", "Method": "External" },
-          { "Format": "ass", "Method": "External" },
-          { "Format": "ssa", "Method": "External" }
+          {"Format":"vtt","Method":"External"},
+          {"Format":"ass","Method":"External"},
+          {"Format":"ssa","Method":"External"}
         ],
         "ResponseProfiles": [
-          { "Type": "Video", "Container": "m4v", "MimeType": "video/mp4" }
+          {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
         ]
       }
     };
-  
+    
+    // Добавляем опциональные поля только если они переданы
+    if (mediaSourceId) {
+      postBody.MediaSourceId = mediaSourceId;
+    }
+    if (audioIndex !== null && audioIndex !== undefined) {
+      postBody.AudioStreamIndex = String(audioIndex); // оставляем строкой, как в примере
+    }
+    if (subIndex !== null && subIndex !== undefined) {
+      postBody.SubtitleStreamIndex = String(subIndex);
+    }
+    
     remoteLog('[Jellyfin] POST body (full DeviceProfile):', postBody);
-  
+    
     return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
       method: 'POST',
       jsonBody: postBody
@@ -569,6 +580,7 @@
       remoteLog('[Jellyfin] PlaybackInfo response:', response);
       return response;
     }).catch(function (err) {
+      remoteLog('[Jellyfin] PlaybackInfo error:', err);
       throw err;
     });
   }
