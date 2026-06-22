@@ -652,7 +652,7 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-          timeline: { time: startTicks / 10000000 };
+          timeline: { time: startTicks / 10000000 },
 		  subtitles: { url: currentSubtitleDeliveryUrl, label: currentDisplayTitle }
         };
         if (row.resumeSec > 0) {
