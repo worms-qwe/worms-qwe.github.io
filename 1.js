@@ -511,7 +511,13 @@
   }
 
   // --- Функция для запроса PlaybackInfo (POST) с возможностью принудительного транскодирования ---
-  var postBody = {
+  function fetchPlaybackInfo(itemId, userId, opts) {
+    opts = opts || {};
+    var startTicks = opts.startTicks || 0;
+  
+    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
+	
+    var postBody = {
     UserId: userId,
     DeviceId: getDeviceId(),
     StartTimeTicks: startTicks,
