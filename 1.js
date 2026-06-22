@@ -544,7 +544,7 @@
 	    "TranscodingProfiles": [
 	      {"Container":"ts","Type":"Audio","AudioCodec":"aac","Context":"Streaming","Protocol":"hls","MaxAudioChannels":"6","MinSegments":"1","BreakOnNonKeyFrames":false,"EnableAudioVbrEncoding":true},
 	      {"Container":"aac","Type":"Audio","AudioCodec":"aac","Context":"Static","Protocol":"hls","MaxAudioChannels":6},
-	      {"Container":"ts","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1080,"IsRequired":false}]}
+	      {"Container":"ts","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "ContainerProfiles": [],
 	    "CodecProfiles": [
@@ -553,7 +553,7 @@
 	      {"Type":"VideoAudio","Conditions":[{"Condition":"LessThanEqual","Property":"AudioChannels","Value":6,"IsRequired":false},{"Condition":"Equals","Property":"IsSecondaryAudio","Value":"false","IsRequired":false}]},
 	      {"Type":"Video","Codec":"h264","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"high|main|baseline|constrained baseline","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":52,"IsRequired":false},{"Condition":"NotEquals","Property":"IsInterlaced","Value":"true","IsRequired":false}]},
 	      {"Type":"Video","Codec":"av1","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"main","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":19,"IsRequired":false}]},
-	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1080,"IsRequired":false}]}
+	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
 	      {"Format":"vtt","Method":"External"},
