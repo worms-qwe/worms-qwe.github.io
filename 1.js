@@ -398,7 +398,7 @@
         rememberAutoUser(defaultUserFromList(users));
         items.unshift({
           title: autoUserPickTitle(users),
-          userId: '',
+          userId: ''
         });
         Lampa.Select.show({
           title: Lampa.Lang.translate('jellyfin_user_pick'),
