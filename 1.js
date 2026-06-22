@@ -647,7 +647,7 @@
         var playObj = {
           title: row.title,
           url: fullUrl,
-          movie: row.raw,
+          //movie: row.raw,
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
@@ -684,6 +684,7 @@
       if (currentPlay) {
         var newPlay = Object.assign({}, currentPlay, { url: fullUrl });
         newPlay.timeline = { time: startTicks / 10000000 };
+        remoteLog('[Jellyfin] final newPlay:', newPlay);
         Lampa.Player.close();
         Lampa.Player.play(newPlay);
       }
@@ -1816,7 +1817,7 @@
         var playObj = {
           title: row.title,
           url: url,
-          movie: row.raw,
+          //movie: row.raw,
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
