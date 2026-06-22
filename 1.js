@@ -653,7 +653,7 @@
           url: fullUrl,
           //movie: row.raw,
           timeline: { time: startTicks / 10000000 },
-		  subtitles: { url: currentSubtitleDeliveryUrl, label: currentDisplayTitle }
+		  subtitles: { url: apiBase() + currentSubtitleDeliveryUrl, label: currentDisplayTitle }
         };
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
