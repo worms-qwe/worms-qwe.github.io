@@ -310,6 +310,8 @@
 
   function jfHttp(path, opts) {
     opts = opts || {};
+	console.error('Jellyfin path', path);
+	console.error('Jellyfin opts', opts);
     var base = apiBase();
     var key = apiKey();
     if (!base || !key) return Promise.reject(new Error('Jellyfin URL or API key is empty'));
@@ -823,13 +825,16 @@
         });
       }
     });
-
+  
+    console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
+  
     var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
       dataType: 'json'
     }).then(function(response) {
+      console.error('Jellyfin PlaybackInfo response', response);
       var sources = response.MediaSources || [];
       if (sources.length === 0) throw new Error('No media sources');
       var source = sources[0];
@@ -841,6 +846,7 @@
         if (!transcodingUrl) throw new Error('No TranscodingUrl');
         playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
       } else {
+        // Прямой стрим (без транскодирования)
         var parts = [
           'DeviceId=' + encodeURIComponent(deviceId),
           'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
@@ -852,24 +858,21 @@
         playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
       }
   
-      // Извлекаем субтитры и добавляем selected для default
+      // Извлекаем субтитры
       var subtitles = [];
       var streams = source.MediaStreams || [];
       streams.forEach(function(stream) {
         if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-          var sub = {
+          subtitles.push({
             url: apiBase() + stream.DeliveryUrl,
             label: stream.DisplayTitle || stream.Language || 'Subtitle'
-          };
-          // Если IsDefault === true, добавляем selected: true
-          if (stream.IsDefault === true) {
-            sub.selected = true;
-          } else {
-			sub.selected = false;
-		  }
-          subtitles.push(sub);
+          });
         }
       });
+  
+      console.error('Jellyfin final stream URL', playUrl);
+      console.error('Jellyfin subtitles', subtitles);
+  
       return { url: playUrl, subtitles: subtitles };
     });
   }
@@ -915,12 +918,10 @@
           ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
           : { time: playTarget.resumeSec };
       }
-  
-      // Добавляем субтитры в playItem, если они есть
+      // Добавляем субтитры, если есть
       if (result.subtitles && result.subtitles.length) {
         item.subtitles = result.subtitles;
       }
-	  console.error('item.subtitles', item.subtitles);
   
       // Если транскодирование включено и не singleStream – строим карту качеств
       if (transcodingEnabled() && !opts.singleStream) {
@@ -2563,7 +2564,6 @@
           return playItemFromRow(ready, userId, true, streamOpts).then(function(playItem) {
             return playlistFromRows(rows, userId, streamOpts).then(function(playlist) {
               playItem.playlist = playlist;
-			  console.error('playItem', playItem);
               Lampa.Player.play(playItem);
             });
           });
