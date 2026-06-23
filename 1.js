@@ -53,8 +53,8 @@
   var currentMediaSourceId = null;
   var currentMediaStreams = [];
   var currentAudioIndex = null;
-  var currentSubtitleIndex = null;
-  var currentSubtitleDeliveryUrl = null;
+  //var currentSubtitleIndex = null;
+  //var currentSubtitleDeliveryUrl = null;
   var currentDisplayTitle = null;
 
   // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
@@ -644,8 +644,8 @@
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === true; });
         currentAudioIndex = defAudio ? defAudio.Index : undefined;
-        currentSubtitleIndex = defSub ? defSub.Index : undefined;
-		currentSubtitleDeliveryUrl = defSub ? defSub.DeliveryUrl : undefined;
+        //currentSubtitleIndex = defSub ? defSub.Index : undefined;
+		//currentSubtitleDeliveryUrl = defSub ? defSub.DeliveryUrl : undefined;
 		currentDisplayTitle = defSub ? defSub.DisplayTitle : undefined;
         currentItemId = itemId;
         currentUserId = userId;
@@ -669,11 +669,11 @@
   }
 
   // --- Функция обновления плеера при смене аудио/субтитров ---
-  function updatePlayerWithNewStreams(itemId, userId, audioIdx, subIdx, startTicks) {
+  function updatePlayerWithNewStreams(itemId, userId, audioIdx, startTicks) {
     return fetchPlaybackInfo(itemId, userId, {
       mediaSourceId: currentMediaSourceId,
       audioStreamIndex: audioIdx,
-      subtitleStreamIndex: subIdx,
+      //subtitleStreamIndex: subIdx,
       startTicks: startTicks,
       enableTranscoding: true
     }).then(function (info) {
@@ -687,7 +687,7 @@
       currentPlaySessionId = info.PlaySessionId;
       currentMediaStreams = src.MediaStreams || [];
       if (audioIdx !== undefined) currentAudioIndex = audioIdx;
-      if (subIdx !== undefined) currentSubtitleIndex = subIdx;
+      //if (subIdx !== undefined) currentSubtitleIndex = subIdx;
       currentMediaSourceId = src.Id;
 
       var currentPlay = Lampa.Player.playdata();
@@ -725,7 +725,7 @@
               var userId = currentUserId;
               var startTicks = (Lampa.Player.playdata() && Lampa.Player.playdata().timeline) ?
                 (Lampa.Player.playdata().timeline.time * 10000000) : 0;
-              updatePlayerWithNewStreams(itemId, userId, stream.Index, currentSubtitleIndex, startTicks);
+              updatePlayerWithNewStreams(itemId, userId, stream.Index, startTicks);
               tracks.forEach(function (t) { t.selected = false; });
               track.selected = true;
               Lampa.PlayerPanel.setTracks(tracks);
@@ -736,41 +736,41 @@
         return track;
       });
 
-      var subs = subStreams.map(function (stream) {
-        var label = stream.DisplayTitle || stream.Language || ('Subtitle ' + stream.Index);
-        var selected = (stream.Index === currentSubtitleIndex);
-        var sub = {
-          index: stream.Index,
-          language: stream.Language || '',
-          label: label,
-          selected: selected,
-          mode: selected ? 'showing' : 'disabled'
-        };
-        if (stream.DeliveryUrl) {
-          var fixedSubUrl = stream.DeliveryUrl.replace(/\\u0026/g, '&');
-          sub.url = apiBase() + fixedSubUrl;
-        }
-        Object.defineProperty(sub, 'mode', {
-          set: function (v) {
-            if (v === 'showing') {
-              var itemId = currentItemId;
-              var userId = currentUserId;
-              var startTicks = (Lampa.Player.playdata() && Lampa.Player.playdata().timeline) ?
-                (Lampa.Player.playdata().timeline.time * 10000000) : 0;
-              updatePlayerWithNewStreams(itemId, userId, currentAudioIndex, stream.Index, startTicks);
-              subs.forEach(function (s) { s.selected = false; s.mode = 'disabled'; });
-              sub.selected = true;
-              sub.mode = 'showing';
-              Lampa.PlayerPanel.setSubs(subs);
-            }
-          },
-          get: function () { return sub.selected ? 'showing' : 'disabled'; }
-        });
-        return sub;
-      });
+      // var subs = subStreams.map(function (stream) {
+        // var label = stream.DisplayTitle || stream.Language || ('Subtitle ' + stream.Index);
+        // var selected = (stream.Index === currentSubtitleIndex);
+        // var sub = {
+          // index: stream.Index,
+          // language: stream.Language || '',
+          // label: label,
+          // selected: selected,
+          // mode: selected ? 'showing' : 'disabled'
+        // };
+        // if (stream.DeliveryUrl) {
+          // var fixedSubUrl = stream.DeliveryUrl.replace(/\\u0026/g, '&');
+          // sub.url = apiBase() + fixedSubUrl;
+        // }
+        // Object.defineProperty(sub, 'mode', {
+          // set: function (v) {
+            // if (v === 'showing') {
+              // var itemId = currentItemId;
+              // var userId = currentUserId;
+              // var startTicks = (Lampa.Player.playdata() && Lampa.Player.playdata().timeline) ?
+                // (Lampa.Player.playdata().timeline.time * 10000000) : 0;
+              // updatePlayerWithNewStreams(itemId, userId, currentAudioIndex, stream.Index, startTicks);
+              // subs.forEach(function (s) { s.selected = false; s.mode = 'disabled'; });
+              // sub.selected = true;
+              // sub.mode = 'showing';
+              // Lampa.PlayerPanel.setSubs(subs);
+            // }
+          // },
+          // get: function () { return sub.selected ? 'showing' : 'disabled'; }
+        // });
+        // return sub;
+      // });
 
       if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
-      if (subs.length) Lampa.PlayerPanel.setSubs(subs);
+      //if (subs.length) Lampa.PlayerPanel.setSubs(subs);
     });
   }
 
