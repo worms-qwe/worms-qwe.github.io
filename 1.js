@@ -564,8 +564,8 @@
 	      {"Format":"vtt","Method":"HLS"}
 	      //"Method":"Embed"
 		  //"Method":"External"
-	      //"Method":"HLS"},
-	      //"Method":"Encode"},
+	      //"Method":"HLS",
+	      //"Method":"Encode",
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
