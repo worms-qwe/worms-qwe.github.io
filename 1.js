@@ -558,8 +558,9 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"subrip","Method":"External"},
-	      {"Format":"srt","Method":"External"},
+	      {"Format":"subrip","Method":"Embed"},
+	      {"Format":"srt","Method":"Embed"},
+	      //{"Format":"srt","Method":"External"},
 	      {"Format":"ass","Method":"Embed"},
 	      {"Format":"ssa","Method":"Embed"}
 	    ],
