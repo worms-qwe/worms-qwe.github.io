@@ -654,8 +654,8 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-          timeline: { time: startTicks / 10000000 },
-		  subtitles: [{ url: apiBase() + currentSubtitleDeliveryUrl, label: currentDisplayTitle }]
+		  //subtitles: [{ url: apiBase() + currentSubtitleDeliveryUrl, label: currentDisplayTitle }],
+          timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
           playObj.timeline = { time: row.resumeSec };
