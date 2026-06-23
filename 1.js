@@ -325,14 +325,19 @@
     var postData = method === 'POST' && opts.jsonBody === undefined ? opts.data : undefined;
     var net = network();
     var useJsonAjax = opts.jsonBody !== undefined || method === 'DELETE';
+    var useCache = method === 'GET' && !useJsonAjax && opts.cache !== false;
+    var cached = useCache ? readApiCache(url) : null;
+    if (cached !== null) return Promise.resolve(cached);
+    if (useCache && apiInflight[apiCacheKey(url)]) return apiInflight[apiCacheKey(url)];
 
-    return new Promise(function (resolve, reject) {
+    var request = new Promise(function (resolve, reject) {
       function ok(raw) {
         if (dataType === 'json' && typeof raw === 'string' && raw.length) {
           try {
             raw = JSON.parse(raw);
           } catch (ignore) { }
         }
+        if (useCache) writeApiCache(url, raw);
         resolve(raw);
       }
       function fail(err) {
@@ -351,9 +356,6 @@
           dataType: dataType === 'text' ? 'text' : 'json',
           contentType: opts.jsonBody !== undefined ? 'application/json' : undefined,
           data: opts.jsonBody !== undefined ? JSON.stringify(opts.jsonBody) : undefined,
-          headers: {
-            'X-Emby-Token': key
-          }
         })
           .done(ok)
           .fail(fail);
@@ -368,6 +370,16 @@
       net.timeout(timeout);
       net.silent(url, ok, fail, postData, { timeout: timeout, dataType: dataType });
     });
+
+    if (useCache) {
+      var inflightKey = apiCacheKey(url);
+      apiInflight[inflightKey] = request.finally(function () {
+        delete apiInflight[inflightKey];
+      });
+      return apiInflight[inflightKey];
+    }
+
+    return request;
   }
 
   function tmdbJson(url) {
@@ -729,7 +741,7 @@
     var userId = opts.userId || '';
     var startTicks = opts.startTicks || 0;
     var deviceId = getDeviceId();
-    var maxStreamingBitrate = 690826541; // фиксированное значение из примера
+    var maxStreamingBitrate = 690826541;
   
     var postBody = {
       UserId: userId,
@@ -780,19 +792,31 @@
       }
     };
   
-    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+    console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
+  
+    var url = apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo?api_key=' + encodeURIComponent(apiKey());
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
       dataType: 'json'
     }).then(function(response) {
+      console.error('Jellyfin PlaybackInfo response', response);
       var sources = response.MediaSources || [];
       if (sources.length === 0) throw new Error('No media sources');
       var transcodingUrl = sources[0].TranscodingUrl;
       if (!transcodingUrl) throw new Error('No TranscodingUrl');
-	  console.error('url', apiBase() + transcodingUrl.replace(/\\u0026/g, '&'));
-      return apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+      var fullUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+      console.error('Jellyfin final stream URL', fullUrl);
+      return fullUrl;
     });
+  }
+  function buildStreamQualityMap(itemId, opts) {
+    if (!transcodingEnabled()) return null;
+    var map = {};
+    PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
+      map[entry.key] = streamUrl(itemId, Object.assign({}, opts, { qualityPreset: entry.preset }));
+    });
+    return map;
   }
 
   function playItemFromRow(row, userId, includeMovie, opts) {
