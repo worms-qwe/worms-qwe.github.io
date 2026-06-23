@@ -558,11 +558,14 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"subrip","Method":"Embed"},
-	      {"Format":"srt","Method":"Embed"},
-	      //{"Format":"srt","Method":"External"},
-	      {"Format":"ass","Method":"Embed"},
-	      {"Format":"ssa","Method":"Embed"}
+	      {"Format":"subrip","Method":"HLS"},
+	      {"Format":"srt","Method":"HLS"},
+	      //{"Format":"srt","Method":"Embed"},
+		  //{"Format":"srt","Method":"External"},
+	      //{"Format":"srt","Method":"HLS"},
+	      //{"Format":"srt","Method":"Encode"},
+	      {"Format":"ass","Method":"HLS"},
+	      {"Format":"ssa","Method":"HLS"}
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
@@ -654,7 +657,7 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-		  //subtitles: [{ url: apiBase() + currentSubtitleDeliveryUrl, label: currentDisplayTitle }],
+		  subtitles: [{ url: apiBase() + currentSubtitleDeliveryUrl, label: currentDisplayTitle }, ],
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
