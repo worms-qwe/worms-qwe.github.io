@@ -655,7 +655,7 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-		  subtitle: apiBase() + defSub.DeliveryUrl,
+		  subtitles: [{"url": apiBase() + defSub.DeliveryUrl, "label": defSub.DisplayTitle}],
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
