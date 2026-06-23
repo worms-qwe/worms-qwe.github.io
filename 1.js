@@ -744,32 +744,11 @@
     var startTicks = opts.startTicks || 0;
     var deviceId = getDeviceId();
   
-    // ---- Прямой стрим (без транскодирования) ----
-    if (!transcodingEnabled()) {
-      var parts = [
-        'DeviceId=' + encodeURIComponent(deviceId),
-        'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
-        'api_key=' + encodeURIComponent(apiKey()),
-        'Static=true'
-      ];
-      if (userId) parts.push('UserId=' + encodeURIComponent(userId));
-      if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
-      var directUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
-      console.error('Jellyfin direct stream URL', directUrl);
-      return Promise.resolve(directUrl);
-    }
-  
-    // ---- Транскодирование с выбором качества ----
+    // ---- Всегда запрашиваем PlaybackInfo, чтобы получить субтитры ----
     var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
-    var quality = streamQualityPreset(qualityPresetKey); // { maxWidth, videoBitrate, audioBitrate, maxStreamingBitrate }
+    var quality = streamQualityPreset(qualityPresetKey);
   
-    console.error('Jellyfin quality.maxStreamingBitrate', quality.maxStreamingBitrate);
-	console.error('Jellyfin quality.videoBitrate', quality.videoBitrate);
-	console.error('Jellyfin quality.audioBitrate', quality.audioBitrate); 
-	console.error('Jellyfin quality.maxWidth', quality.maxWidth);
-	
-	
-	var postBody = {
+    var postBody = {
       UserId: userId,
       DeviceId: deviceId,
       StartTimeTicks: startTicks,
@@ -849,7 +828,7 @@
   
     console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
   
-    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo' ;
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
@@ -858,11 +837,43 @@
       console.error('Jellyfin PlaybackInfo response', response);
       var sources = response.MediaSources || [];
       if (sources.length === 0) throw new Error('No media sources');
-      var transcodingUrl = sources[0].TranscodingUrl;
-      if (!transcodingUrl) throw new Error('No TranscodingUrl');
-      var fullUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
-      console.error('Jellyfin final stream URL', fullUrl);
-      return fullUrl;
+      var source = sources[0];
+  
+      // Формируем URL для воспроизведения
+      var playUrl;
+      if (transcodingEnabled()) {
+        var transcodingUrl = source.TranscodingUrl;
+        if (!transcodingUrl) throw new Error('No TranscodingUrl');
+        playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+      } else {
+        // Прямой стрим (без транскодирования)
+        var parts = [
+          'DeviceId=' + encodeURIComponent(deviceId),
+          'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
+          'api_key=' + encodeURIComponent(apiKey()),
+          'Static=true'
+        ];
+        if (userId) parts.push('UserId=' + encodeURIComponent(userId));
+        if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
+        playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+      }
+  
+      // Извлекаем субтитры
+      var subtitles = [];
+      var streams = source.MediaStreams || [];
+      streams.forEach(function(stream) {
+        if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+          subtitles.push({
+            url: apiBase() + stream.DeliveryUrl,
+            label: stream.DisplayTitle || stream.Language || 'Subtitle'
+          });
+        }
+      });
+  
+      console.error('Jellyfin final stream URL', playUrl);
+      console.error('Jellyfin subtitles', subtitles);
+  
+      return { url: playUrl, subtitles: subtitles };
     });
   }
   
@@ -872,8 +883,8 @@
     var baseOpts = Object.assign({}, opts);
     var promises = PLAYER_TRANSCODE_QUALITIES.map(function(entry) {
       var localOpts = Object.assign({}, baseOpts, { qualityPreset: entry.preset });
-      return streamUrl(itemId, localOpts).then(function(url) {
-        map[entry.key] = url;
+      return streamUrl(itemId, localOpts).then(function(result) {
+        map[entry.key] = result.url;
       });
     });
     return Promise.all(promises).then(function() {
@@ -897,16 +908,21 @@
       qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey()
     };
   
-    return streamUrl(playTarget.id, streamOpts).then(function(url) {
+    return streamUrl(playTarget.id, streamOpts).then(function(result) {
       var item = {
         title: row.title,
-        url: url,
+        url: result.url,
       };
       if (playTarget.resumeSec > 0) {
         item.timeline = includeMovie
           ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
           : { time: playTarget.resumeSec };
       }
+      // Добавляем субтитры, если есть
+      if (result.subtitles && result.subtitles.length) {
+        item.subtitles = result.subtitles;
+      }
+  
       // Если транскодирование включено и не singleStream – строим карту качеств
       if (transcodingEnabled() && !opts.singleStream) {
         return buildStreamQualityMap(playTarget.id, streamOpts).then(function(qualityMap) {
@@ -920,7 +936,7 @@
       }
     });
   }
-  
+ 
   function playlistFromRows(rows, userId, opts) {
     return Promise.all(rows.map(function(row) {
       return playItemFromRow(row, userId, false, opts);
