@@ -310,6 +310,8 @@
 
   function jfHttp(path, opts) {
     opts = opts || {};
+	console.error('Jellyfin path', path);
+	console.error('Jellyfin opts', opts);
     var base = apiBase();
     var key = apiKey();
     if (!base || !key) return Promise.reject(new Error('Jellyfin URL or API key is empty'));
@@ -794,7 +796,7 @@
   
     console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
   
-    var url = apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo?api_key=' + encodeURIComponent(apiKey());
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo ;
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
