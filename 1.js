@@ -558,11 +558,11 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      //{"Format":"vtt","Method":"External"},
-	      //{"Format":"subrip","Method":"External"},
-	      {"Format":"srt","Method":"External"},
-	      //{"Format":"ass","Method":"External"},
-	      {"Format":"ssa","Method":"External"}
+	      //{"Format":"vtt","Method":"External"},		//
+	      //{"Format":"subrip","Method":"External"}, 	*
+	      //{"Format":"srt","Method":"External"},		*
+	      {"Format":"ass","Method":"Embed"},		//	
+	      {"Format":"ssa","Method":"Embed"}
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
