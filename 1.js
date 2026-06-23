@@ -564,8 +564,8 @@
 		  //{"Format":"srt","Method":"External"},
 	      //{"Format":"srt","Method":"HLS"},
 	      //{"Format":"srt","Method":"Encode"},
-	      {"Format":"ass","Method":"HLS"},
-	      {"Format":"ssa","Method":"HLS"}
+	      {"Format":"ass","Method":"Encode"},
+	      {"Format":"ssa","Method":"Encode"}
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
