@@ -558,10 +558,10 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"ass","Method":"HLS"},
-	      {"Format":"ssa","Method":"HLS"},
-	      {"Format":"srt","Method":"HLS"},
-	      {"Format":"vtt","Method":"HLS"}
+	      {"Format":"ass","Method":"External"},
+	      {"Format":"ssa","Method":"External"}
+	      //{"Format":"srt","Method":"HLS"},
+	      //{"Format":"vtt","Method":"HLS"}
 	      //"Method":"Embed"
 		  //"Method":"External"
 	      //"Method":"HLS",
@@ -655,6 +655,7 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
+		  subtitle: apiBase() + defSub.DeliveryUrl,
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
