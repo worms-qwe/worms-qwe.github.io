@@ -546,7 +546,7 @@
 	    "TranscodingProfiles": [
 	      {"Container":"ts","Type":"Audio","AudioCodec":"aac","Context":"Streaming","Protocol":"hls","MaxAudioChannels":"6","MinSegments":"1","BreakOnNonKeyFrames":false,"EnableAudioVbrEncoding":true},
 	      {"Container":"aac","Type":"Audio","AudioCodec":"aac","Context":"Static","Protocol":"hls","MaxAudioChannels":6},
-	      {"Container":"ts","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
+	      {"Container":"hls","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "ContainerProfiles": [],
 	    "CodecProfiles": [
