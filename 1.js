@@ -763,7 +763,13 @@
     var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
     var quality = streamQualityPreset(qualityPresetKey); // { maxWidth, videoBitrate, audioBitrate, maxStreamingBitrate }
   
-    var postBody = {
+    console.error('Jellyfin quality.maxStreamingBitrate', quality.maxStreamingBitrate);
+	console.error('Jellyfin quality.videoBitrate', quality.videoBitrate);
+	console.error('Jellyfin quality.audioBitrate', quality.audioBitrate); 
+	console.error('Jellyfin quality.maxWidth', quality.maxWidth);
+	
+	
+	var postBody = {
       UserId: userId,
       DeviceId: deviceId,
       StartTimeTicks: startTicks,
