@@ -918,6 +918,7 @@
       if (result.subtitles && result.subtitles.length) {
         item.subtitles = result.subtitles;
       }
+	  console.error('item.subtitles', item.subtitles);
   
       // Если транскодирование включено и не singleStream – строим карту качеств
       if (transcodingEnabled() && !opts.singleStream) {
