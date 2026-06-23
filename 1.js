@@ -18,85 +18,58 @@
   var TMDB_ENRICH_CONCURRENCY = 8;
   var PAGE_SIZE = 48;
   var IMG_PLACEHOLDER = './img/img_load.svg';
-  var LIBRARY_INDEX_TTL_MS = 5 * 60 * 1000;
+  var API_CACHE_TTL_MS = 30 * 60 * 1000;
+  var API_USERDATA_TTL_MS = 3 * 60 * 1000;
+  var API_LATEST_TTL_MS = 5 * 60 * 1000;
+  var API_CACHE_MAX_ENTRIES = 72;
+  var LIBRARY_INDEX_TTL_MS = 10 * 60 * 1000;
+  var TMDB_META_TTL_MS = 24 * 60 * 60 * 1000;
+  var TMDB_META_MAX_ENTRIES = 400;
 
   var RELEASE_FOLDER_RE =
     /(Season\s*\d+)|(S\d{1,2}\s*E\d{0,2}\s*WEB)|WEB-DL|WEBRip|BluRay|2160p|1080p|720p|HDR10|HDR\b|\bDV\b|NOIR\s+VER|COLOR\s+VER|x265|x264/i;
 
+  var JELLYFIN_ICON_PATHS =
+    '<path d="M256 196.2c-22.4 0-94.8 131.3-83.8 153.4s156.8 21.9 167.7 0-61.3-153.4-83.9-153.4"/>' +
+    '<path d="M256 0C188.3 0-29.8 395.4 3.4 462.2s472.3 66 505.2 0S323.8 0 256 0m165.6 404.3c-21.6 43.2-309.3 43.8-331.1 0S211.7 101.4 256 101.4 443.2 361 421.6 404.3"/>';
+
+  var JELLYFIN_ICON_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor">' +
+    JELLYFIN_ICON_PATHS +
+    '</svg>';
+
   var MANIFEST = {
     type: 'video',
-    version: '1.3.0',
+    version: '1.4.0',
     author: '@pavelpikta',
     name: 'Jellyfin',
     description: 'Browse and play your Jellyfin library in Lampa',
     component: SETTINGS_COMPONENT,
     icon:
-      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>'
+      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 512 512" fill="currentColor">' +
+      JELLYFIN_ICON_PATHS +
+      '</svg>',
   };
 
   var FULLSTART_BTN_ICON =
-    '<svg class="jellyfin-fullstart__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>';
+    '<svg class="jellyfin-fullstart__icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true">' +
+    JELLYFIN_ICON_PATHS +
+    '</svg>';
 
-  var HEAD_ICON_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>';
+  var HEAD_ICON_SVG = JELLYFIN_ICON_SVG;
 
   var cachedUserId = '';
   var cachedAutoUserName = '';
   var libraryIndex = { byTmdb: {}, loadedAt: 0 };
   var tmdbMetaCache = {};
   var tmdbPosterInflight = {};
+  var apiResponseCache = {};
+  var apiCacheOrder = [];
+  var apiInflight = {};
+  var apiCacheEpoch = 0;
+  var libraryIndexInflight = null;
+  var hubDataInflight = null;
 
-  // --- Глобальные переменные для текущей сессии воспроизведения ---
-  var currentItemId = null;
-  var currentUserId = null;
-  var currentPlaySessionId = null;
-  var currentMediaSourceId = null;
-  var currentMediaStreams = [];
-  var currentAudioIndex = null;
-  //var currentSubtitleIndex = null;
-  //var currentSubtitleDeliveryUrl = null;
-  var currentDisplayTitle = null;
-
-  // --- Параметры транскодирования (фиксированное качество – HLS с адаптивным битрейтом) ---
-  var TRANSCODE_QUALITY = {
-    maxWidth: 1920,
-    videoBitrate: 20000000,
-    maxStreamingBitrate: 80000000,
-    audioBitrate: 384000,
-    h264Level: '51'
-  };
-
-  // --- Функция удалённого логирования ---
-  function remoteLog() {
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function (arg) {
-      if (typeof arg === 'object') {
-        try {
-          return JSON.stringify(arg);
-        } catch (e) {
-          return String(arg);
-        }
-      }
-      return String(arg);
-    }).join(' ');
-
-    var logUrl = storageStr('LogUrl', '');
-    if (logUrl) {
-      try {
-        $.ajax({
-          url: logUrl,
-          type: 'POST',
-          data: JSON.stringify({ message: message }),
-          contentType: 'application/json',
-          timeout: 2000
-        });
-      } catch (e) {}
-    }
-
-    console.log.apply(console, args);
-  }
-
-  // --- Вспомогательные функции (без изменений) ---
   function addLang() {
     Lampa.Lang.add({
       jellyfin_title: { en: 'Jellyfin', ru: 'Jellyfin' },
@@ -115,7 +88,7 @@
       jellyfin_empty: { en: 'Library is empty', ru: 'Библиотека пуста' },
       jellyfin_empty_descr: {
         en: 'Add media to Jellyfin or check connection settings',
-        ru: 'Добавьте медиа в Jellyfin или проверьте настройки подключения'
+        ru: 'Добавьте медиа в Jellyfin или проверьте настройки подключения',
       },
       jellyfin_retry: { en: 'Retry', ru: 'Повторить' },
       jellyfin_open_settings: { en: 'Open settings', ru: 'Открыть настройки' },
@@ -126,54 +99,60 @@
       jellyfin_key: { en: 'API key', ru: 'API-ключ' },
       jellyfin_no_tmdb: {
         en: 'No TMDB id on this item',
-        ru: 'Нет TMDB id у этого элемента'
+        ru: 'Нет TMDB id у этого элемента',
       },
       jellyfin_error: { en: 'Something went wrong', ru: 'Что-то пошло не так' },
       jellyfin_settings_name: { en: 'Jellyfin', ru: 'Jellyfin' },
       jellyfin_settings_hint: {
         en: 'Jellyfin URL and API key from Dashboard → API Keys',
-        ru: 'URL Jellyfin и API-ключ из Панель → Ключи API'
+        ru: 'URL Jellyfin и API-ключ из Панель → Ключи API',
       },
       jellyfin_set_dedupe: {
         en: 'Merge duplicates (TMDB)',
-        ru: 'Объединять дубликаты (TMDB)'
+        ru: 'Объединять дубликаты (TMDB)',
       },
       jellyfin_set_hide_folders: {
         en: 'Hide release folders',
-        ru: 'Скрывать папки релизов'
+        ru: 'Скрывать папки релизов',
       },
       jellyfin_set_tmdb_posters: {
         en: 'TMDB posters & titles',
-        ru: 'Постеры и названия из TMDB'
+        ru: 'Постеры и названия из TMDB',
       },
       jellyfin_set_full_button: {
         en: 'Play button on Lampa card',
-        ru: 'Кнопка воспроизведения на карточке'
+        ru: 'Кнопка воспроизведения на карточке',
       },
       jellyfin_more: { en: 'More', ru: 'Ещё' },
       jellyfin_libraries: { en: 'Library', ru: 'Библиотека' },
       jellyfin_set_tap_play: {
         en: 'Tap card to play (long = menu)',
-        ru: 'Нажатие — смотреть (долгое — меню)'
+        ru: 'Нажатие — смотреть (долгое — меню)',
+      },
+      jellyfin_set_transcode: {
+        en: 'HLS transcoding (Lampa player)',
+        ru: 'HLS-транскодинг (плеер Lampa)',
       },
       jellyfin_set_stream_hint: {
-        en: 'Lampa player: HLS transcode (quality in player). External player: direct stream.',
-        ru: 'Плеер Lampa: HLS-транскодинг (качество в плеере). Внешний плеер: прямой поток.'
+        en: 'When on, Lampa player uses HLS transcode with quality selection. External players always use direct stream.',
+        ru: 'Если включено, плеер Lampa использует HLS-транскодинг с выбором качества. Внешние плееры всегда получают прямой поток.',
       },
       jellyfin_play_from_library: {
         en: 'Play from Jellyfin',
-        ru: 'Смотреть из Jellyfin'
+        ru: 'Смотреть из Jellyfin',
       },
+      jellyfin_pick_quality: { en: 'Choose quality', ru: 'Выберите качество' },
+      jellyfin_play_4k: { en: 'Play 4K', ru: 'Смотреть 4K' },
+      jellyfin_play_1080: { en: 'Play 1080p', ru: 'Смотреть 1080p' },
       jellyfin_watched: { en: 'Watched', ru: 'Просмотрено' },
       jellyfin_mark_watched: { en: 'Mark as watched', ru: 'Отметить просмотренным' },
       jellyfin_mark_unwatched: { en: 'Mark as unwatched', ru: 'Снять отметку просмотра' },
       jellyfin_mark_watched_ok: { en: 'Marked as watched', ru: 'Отмечено как просмотрено' },
-      jellyfin_mark_unwatched_ok: { en: 'Marked as unwatched', ru: 'Снята отметка просмотра' },
+      jellyfin_mark_unwatched_ok: { en: 'Marked as unwatched', ru: 'Отметка просмотра снята' },
       jellyfin_season_n: { en: 'Season {0}', ru: 'Сезон {0}' },
       jellyfin_user: { en: 'Jellyfin user', ru: 'Пользователь Jellyfin' },
       jellyfin_user_pick: { en: 'Choose user', ru: 'Выбрать пользователя' },
       jellyfin_user_auto: { en: 'First user (auto)', ru: 'Первый пользователь (авто)' },
-      jellyfin_log_url: { en: 'Log URL (optional)', ru: 'URL для логов (опционально)' }
     });
   }
 
@@ -211,6 +190,118 @@
     return storageStr('Key', DEFAULT_API_KEY);
   }
 
+  function apiCacheKey(url) {
+    return apiCacheEpoch + '|' + String(url || '');
+  }
+
+  function apiCacheTtl(url) {
+    var u = String(url || '');
+    if (/\/Items\/Resume(?:\?|$)/i.test(u)) return 0;
+    if (/MediaSources/i.test(u)) return 0;
+    if (/\/PlayedItems\//i.test(u)) return 0;
+    if (/\/Items\/Latest/i.test(u)) return API_LATEST_TTL_MS;
+    if (/UserData/i.test(u)) return API_USERDATA_TTL_MS;
+    return API_CACHE_TTL_MS;
+  }
+
+  function trimApiCache() {
+    while (apiCacheOrder.length > API_CACHE_MAX_ENTRIES) {
+      var oldKey = apiCacheOrder.shift();
+      delete apiResponseCache[oldKey];
+    }
+  }
+
+  function readApiCache(url) {
+    var ttl = apiCacheTtl(url);
+    if (!ttl) return null;
+    var key = apiCacheKey(url);
+    var entry = apiResponseCache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.loadedAt > ttl) {
+      delete apiResponseCache[key];
+      apiCacheOrder = apiCacheOrder.filter(function (k) {
+        return k !== key;
+      });
+      return null;
+    }
+    return entry.data;
+  }
+
+  function writeApiCache(url, data) {
+    if (!apiCacheTtl(url)) return;
+    var key = apiCacheKey(url);
+    if (apiResponseCache[key]) {
+      apiCacheOrder = apiCacheOrder.filter(function (k) {
+        return k !== key;
+      });
+    }
+    apiResponseCache[key] = { data: data, loadedAt: Date.now() };
+    apiCacheOrder.push(key);
+    trimApiCache();
+  }
+
+  function resetApiCacheStore() {
+    apiResponseCache = {};
+    apiCacheOrder = [];
+    apiInflight = {};
+  }
+
+  function clearApiCache() {
+    apiCacheEpoch++;
+    resetApiCacheStore();
+  }
+
+  function invalidateUserDataCaches() {
+    apiCacheEpoch++;
+    resetApiCacheStore();
+    libraryIndex.loadedAt = 0;
+    libraryIndexInflight = null;
+    hubDataInflight = null;
+  }
+
+  function currentTmdbLang() {
+    return Lampa.Storage.field('tmdb_lang') || Lampa.Storage.get('language') || 'en';
+  }
+
+  function tmdbCacheKey(tmdb) {
+    return String(tmdb.method || '') + '/' + String(tmdb.id || '') + '/' + currentTmdbLang();
+  }
+
+  function trimTmdbMetaCache() {
+    var keys = Object.keys(tmdbMetaCache);
+    if (keys.length <= TMDB_META_MAX_ENTRIES) return;
+    keys
+      .sort(function (a, b) {
+        return (tmdbMetaCache[a].loadedAt || 0) - (tmdbMetaCache[b].loadedAt || 0);
+      })
+      .slice(0, keys.length - TMDB_META_MAX_ENTRIES)
+      .forEach(function (key) {
+        delete tmdbMetaCache[key];
+      });
+  }
+
+  function readTmdbMetaCache(tmdb) {
+    var key = tmdbCacheKey(tmdb);
+    var entry = tmdbMetaCache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.loadedAt > TMDB_META_TTL_MS) {
+      delete tmdbMetaCache[key];
+      return null;
+    }
+    return entry.data;
+  }
+
+  function writeTmdbMetaCache(tmdb, meta) {
+    if (!meta) return;
+    tmdbMetaCache[tmdbCacheKey(tmdb)] = { data: meta, loadedAt: Date.now() };
+    trimTmdbMetaCache();
+  }
+
+  function clearTmdbMetaCache() {
+    tmdbMetaCache = {};
+    tmdbPosterInflight = {};
+  }
+
   var netInstance = null;
   function network() {
     if (!netInstance && Lampa.Reguest) netInstance = new Lampa.Reguest();
@@ -234,14 +325,19 @@
     var postData = method === 'POST' && opts.jsonBody === undefined ? opts.data : undefined;
     var net = network();
     var useJsonAjax = opts.jsonBody !== undefined || method === 'DELETE';
+    var useCache = method === 'GET' && !useJsonAjax && opts.cache !== false;
+    var cached = useCache ? readApiCache(url) : null;
+    if (cached !== null) return Promise.resolve(cached);
+    if (useCache && apiInflight[apiCacheKey(url)]) return apiInflight[apiCacheKey(url)];
 
-    return new Promise(function (resolve, reject) {
+    var request = new Promise(function (resolve, reject) {
       function ok(raw) {
         if (dataType === 'json' && typeof raw === 'string' && raw.length) {
           try {
             raw = JSON.parse(raw);
           } catch (ignore) { }
         }
+        if (useCache) writeApiCache(url, raw);
         resolve(raw);
       }
       function fail(err) {
@@ -260,9 +356,6 @@
           dataType: dataType === 'text' ? 'text' : 'json',
           contentType: opts.jsonBody !== undefined ? 'application/json' : undefined,
           data: opts.jsonBody !== undefined ? JSON.stringify(opts.jsonBody) : undefined,
-          headers: {
-            'X-Emby-Token': key
-          }
         })
           .done(ok)
           .fail(fail);
@@ -277,6 +370,16 @@
       net.timeout(timeout);
       net.silent(url, ok, fail, postData, { timeout: timeout, dataType: dataType });
     });
+
+    if (useCache) {
+      var inflightKey = apiCacheKey(url);
+      apiInflight[inflightKey] = request.finally(function () {
+        delete apiInflight[inflightKey];
+      });
+      return apiInflight[inflightKey];
+    }
+
+    return request;
   }
 
   function tmdbJson(url) {
@@ -286,7 +389,7 @@
       if (!net) {
         Lampa.Network.silent(url, resolve, reject, null, {
           timeout: TMDB_TIMEOUT_MS,
-          dataType: 'json'
+          dataType: 'json',
         });
         return;
       }
@@ -310,7 +413,11 @@
   function invalidateUserCache() {
     cachedUserId = '';
     cachedAutoUserName = '';
+    clearApiCache();
+    clearTmdbMetaCache();
     libraryIndex.loadedAt = 0;
+    libraryIndexInflight = null;
+    hubDataInflight = null;
   }
 
   function fetchUsers() {
@@ -330,7 +437,7 @@
       .slice()
       .sort(function (a, b) {
         return String(a.Name || '').localeCompare(String(b.Name || ''), undefined, {
-          sensitivity: 'base'
+          sensitivity: 'base',
         });
       })[0];
   }
@@ -398,7 +505,7 @@
         rememberAutoUser(defaultUserFromList(users));
         items.unshift({
           title: autoUserPickTitle(users),
-          userId: ''
+          userId: '',
         });
         Lampa.Select.show({
           title: Lampa.Lang.translate('jellyfin_user_pick'),
@@ -423,7 +530,7 @@
             syncUserInfoField();
             deferControllerToggle(ctl);
             if (typeof onDone === 'function') onDone();
-          }
+          },
         });
       })
       .catch(function () {
@@ -464,6 +571,40 @@
     return id;
   }
 
+  function screenTv() {
+    return (
+      Lampa.Platform &&
+      typeof Lampa.Platform.screen === 'function' &&
+      Lampa.Platform.screen('tv')
+    );
+  }
+
+  function bindScrollLayerVisible(scroll) {
+    scroll.onScroll = function () {
+      if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render(true));
+    };
+  }
+
+  function scheduleReflowFocus(scroll, owner, lastEl, opts) {
+    opts = opts || {};
+    setTimeout(function () {
+      try {
+        if (opts.layerOnly) {
+          if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render(true));
+          return;
+        }
+        var act = typeof Lampa.Activity.active === 'function' ? Lampa.Activity.active() : null;
+        if (owner && (!act || act.activity !== owner)) return;
+        var ctr = Lampa.Controller.enabled();
+        var allowed = opts.controller ? [opts.controller] : ['content', 'items_line'];
+        if (!ctr || allowed.indexOf(ctr.name) < 0) return;
+        Lampa.Controller.collectionSet(scroll.render(true));
+        Lampa.Controller.collectionFocus(lastEl || false, scroll.render(true));
+        if (lastEl) scroll.update($(lastEl), !!opts.animate);
+      } catch (e) { }
+    }, 0);
+  }
+
   function activePlayerId() {
     try {
       return String(Lampa.Storage.field('player') || Lampa.Storage.get('player', 'inner') || 'inner')
@@ -501,7 +642,7 @@
       tvosl: 1,
       tvosselect: 1,
       mpv: 1,
-      iina: 1
+      iina: 1,
     };
     if (external[player]) return false;
 
@@ -509,82 +650,78 @@
   }
 
   function transcodingEnabled() {
-    return usesLampaNativePlayer();
+    if (!usesLampaNativePlayer()) return false;
+    return storageToggle('Transcode', true);
   }
 
-  // --- Функция для запроса PlaybackInfo (POST) с возможностью принудительного транскодирования ---
-  function fetchPlaybackInfo(itemId, userId, opts) {
-    opts = opts || {};
-    var startTicks = opts.startTicks || 0;
-  
-    remoteLog('[Jellyfin] fetchPlaybackInfo called', { itemId, userId, startTicks });
-  
-    var postBody = {
-	  UserId: userId,
-	  DeviceId: getDeviceId(),
-	  StartTimeTicks: startTicks,
-	  IsPlayback: true,
-	  AutoOpenLiveStream: true,
-	  MaxStreamingBitrate: 690826541,
-	  AlwaysBurnInSubtitleWhenTranscoding: true,
-	  DeviceProfile: {
-	    "MaxStreamingBitrate": 120000000,
-	    "MaxStaticBitrate": 100000000,
-	    "MusicStreamingTranscodingBitrate": 384000,
-	    "DirectPlayProfiles": [
-	      {"Container":"mp4,m4v","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
-	      {"Container":"mkv","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
-	      {"Container":"mov","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"},
-	      {"Container":"ts","AudioCodec":"mp3","Type":"Audio"},
-	      {"Container":"mp3","Type":"Audio"},
-	      {"Container":"aac","Type":"Audio"},
-	      {"Container":"wav","Type":"Audio"},
-	      {"Container":"ogg","Type":"Audio"},
-	      {"Container":"hls","Type":"Video","VideoCodec":"av1,h264","AudioCodec":"aac,mp2"},
-	      {"Container":"hls","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"}
-	    ],
-	    "TranscodingProfiles": [
-	      {"Container":"ts","Type":"Audio","AudioCodec":"aac","Context":"Streaming","Protocol":"hls","MaxAudioChannels":"6","MinSegments":"1","BreakOnNonKeyFrames":false,"EnableAudioVbrEncoding":true},
-	      {"Container":"aac","Type":"Audio","AudioCodec":"aac","Context":"Static","Protocol":"hls","MaxAudioChannels":6},
-	      {"Container":"hls","Type":"Video","AudioCodec":"aac","VideoCodec":"h264","Context":"Streaming","Protocol":"hls","MaxAudioChannels":6,"MinSegments":1,"BreakOnNonKeyFrames":false,"Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
-	    ],
-	    "ContainerProfiles": [],
-	    "CodecProfiles": [
-	      {"Type":"VideoAudio","Codec":"aac","Conditions":[{"Condition":"Equals","Property":"IsSecondaryAudio","Value":"false","IsRequired":false}]},
-	      {"Type":"Audio","Conditions":[{"Condition":"LessThanEqual","Property":"AudioChannels","Value":6,"IsRequired":false}]},
-	      {"Type":"VideoAudio","Conditions":[{"Condition":"LessThanEqual","Property":"AudioChannels","Value":6,"IsRequired":false},{"Condition":"Equals","Property":"IsSecondaryAudio","Value":"false","IsRequired":false}]},
-	      {"Type":"Video","Codec":"h264","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"high|main|baseline|constrained baseline","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":52,"IsRequired":false},{"Condition":"NotEquals","Property":"IsInterlaced","Value":"true","IsRequired":false}]},
-	      {"Type":"Video","Codec":"av1","Conditions":[{"Condition":"NotEquals","Property":"IsAnamorphic","Value":"true","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoProfile","Value":"main","IsRequired":false},{"Condition":"EqualsAny","Property":"VideoRangeType","Value":"SDR","IsRequired":false},{"Condition":"LessThanEqual","Property":"VideoLevel","Value":19,"IsRequired":false}]},
-	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
-	    ],
-	    "SubtitleProfiles": [
-	      {"Format":"ass","Method":"External"},
-	      {"Format":"ssa","Method":"External"}
-	      //{"Format":"srt","Method":"HLS"},
-	      //{"Format":"vtt","Method":"HLS"}
-	      //"Method":"Embed"
-		  //"Method":"External"
-	      //"Method":"HLS",
-	      //"Method":"Encode",
-	    ],
-	    "ResponseProfiles": [
-	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
-	    ]
-	  }
-	};
-  
-    remoteLog('[Jellyfin] POST body (full DeviceProfile):', postBody);
-  
-    return jfHttp('/Items/' + encodeURIComponent(itemId) + '/PlaybackInfo', {
-      method: 'POST',
-      jsonBody: postBody
-    }).then(function (response) {
-      remoteLog('[Jellyfin] PlaybackInfo response:', response);
-      return response;
-    }).catch(function (err) {
-      remoteLog('[Jellyfin] PlaybackInfo error:', err);
-      throw err;
-    });
+  var TRANSCODE_QUALITY_PRESETS = {
+    '720p': {
+      maxWidth: 1280,
+      videoBitrate: 5000000,
+      maxStreamingBitrate: 30000000,
+      audioBitrate: 384000,
+      h264Level: '42',
+    },
+    '1080p': {
+      maxWidth: 1920,
+      videoBitrate: 20000000,
+      maxStreamingBitrate: 80000000,
+      audioBitrate: 384000,
+      h264Level: '51',
+    },
+    '1440p': {
+      maxWidth: 2560,
+      videoBitrate: 35000000,
+      maxStreamingBitrate: 100000000,
+      audioBitrate: 384000,
+      h264Level: '51',
+    },
+    '2160p': {
+      maxWidth: 3840,
+      videoBitrate: 60000000,
+      maxStreamingBitrate: 120000000,
+      audioBitrate: 640000,
+      h264Level: '52',
+    },
+  };
+
+  var PLAYER_TRANSCODE_QUALITIES = [
+    { key: '720p', preset: '720p' },
+    { key: '1080p', preset: '1080p' },
+    { key: '1440p', preset: '1440p' },
+    { key: '2160p', preset: '2160p' },
+  ];
+
+  function defaultTranscodePresetKey() {
+    try {
+      var def = parseInt(
+        Lampa.Storage.field('video_quality_default') ||
+        Lampa.Storage.get('video_quality_default', '1080'),
+        10
+      );
+      if (def >= 2160) return '2160p';
+      if (def >= 1440) return '1440p';
+      if (def >= 1080) return '1080p';
+      return '720p';
+    } catch (e) {
+      return '1080p';
+    }
+  }
+
+  function streamQualityPreset(presetKey) {
+    return TRANSCODE_QUALITY_PRESETS[presetKey || defaultTranscodePresetKey()] || TRANSCODE_QUALITY_PRESETS['1080p'];
+  }
+
+  function appendTranscodeQualityParams(parts, presetKey) {
+    var quality = streamQualityPreset(presetKey);
+    parts.push('MaxStreamingBitrate=' + quality.maxStreamingBitrate);
+    parts.push('MaxStaticBitrate=' + quality.maxStreamingBitrate);
+    parts.push('VideoBitrate=' + quality.videoBitrate);
+    parts.push('AudioBitrate=' + quality.audioBitrate);
+    parts.push('MaxWidth=' + quality.maxWidth);
+    parts.push('h264-profile=high,main,baseline,constrainedbaseline');
+    parts.push('h264-level=' + quality.h264Level);
+    parts.push('TranscodingMaxAudioChannels=6');
   }
 
   function mediaSourceId(itemId) {
@@ -592,187 +729,127 @@
   }
 
   function rowStartTicks(row) {
-    if (row === null || row === undefined || row.resumeSec <= 0) return 0;
+    if (!row || !(row.resumeSec > 0)) return 0;
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // --- Функция создания объекта для плеера (с принудительным транскодированием) ---
-  function buildPlayObject(row, userId, startTicks) {
-    var itemId = row.id;
-    remoteLog('[Jellyfin] buildPlayObject start', { itemId, userId, startTicks });
-
-    // Первый запрос без MediaSourceId
-    return fetchPlaybackInfo(itemId, userId, { startTicks: startTicks })
-      .then(function (info) {
-        remoteLog('[Jellyfin] buildPlayObject got info', info);
-        var sources = info.MediaSources || [];
-        var src = sources[0];
-        if (!src) {
-          throw new Error('No MediaSource found');
-        }
-
-        var transcodingUrl = src.TranscodingUrl || src.DirectStreamUrl;
-
-        // Если нет TranscodingUrl, делаем второй запрос с MediaSourceId и принудительным транскодированием
-        if (!transcodingUrl) {
-          remoteLog('[Jellyfin] No TranscodingUrl, requesting with MediaSourceId and enableTranscoding=true');
-          return fetchPlaybackInfo(itemId, userId, {
-            mediaSourceId: src.Id,
-            startTicks: startTicks,
-            enableTranscoding: true
-          }).then(function (info2) {
-            var src2 = info2.MediaSources && info2.MediaSources[0];
-            if (!src2) throw new Error('No MediaSource in second response');
-            var url2 = src2.TranscodingUrl || src2.DirectStreamUrl;
-            if (!url2) throw new Error('No TranscodingUrl in second response');
-            return { src: src2, info: info2, url: url2 };
-          });
-        } else {
-          return { src: src, info: info, url: transcodingUrl };
-        }
-      })
-      .then(function (result) {
-        var src = result.src;
-        var info = result.info;
-        var rawUrl = result.url;
-
-        var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-        var fullUrl = apiBase() + fixedUrl;
-        remoteLog('[Jellyfin] Final URL:', fullUrl);
-
-        var streams = src.MediaStreams || [];
-        var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
-        var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === false; });
-        currentAudioIndex = defAudio ? defAudio.Index : undefined;
-		currentDisplayTitle = defSub ? defSub.DisplayTitle : undefined;
-        currentItemId = itemId;
-        currentUserId = userId;
-        currentMediaSourceId = src.Id;
-        currentPlaySessionId = info.PlaySessionId;
-        currentMediaStreams = streams;
-
-        var playObj = {
-          title: row.title,
-          url: fullUrl,
-          //movie: row.raw,
-		  subtitles: [{"url": apiBase() + defSub.DeliveryUrl, "label": defSub.DisplayTitle}],
-          timeline: { time: startTicks / 10000000 }
-        };
-        if (row.resumeSec > 0) {
-          playObj.timeline = { time: row.resumeSec };
-        }
-        remoteLog('[Jellyfin] final playObj:', playObj);
-        return playObj;
-      });
-  }
-
-  // --- Функция обновления плеера при смене аудио/субтитров ---
-  function updatePlayerWithNewStreams(itemId, userId, audioIdx, startTicks) {
-    return fetchPlaybackInfo(itemId, userId, {
-      mediaSourceId: currentMediaSourceId,
-      audioStreamIndex: audioIdx,
-      //subtitleStreamIndex: subIdx,
-      startTicks: startTicks,
-      enableTranscoding: true
-    }).then(function (info) {
-      var src = info.MediaSources && info.MediaSources[0];
-      if (!src) throw new Error('No MediaSource');
-      var rawUrl = src.TranscodingUrl || src.DirectStreamUrl;
-      if (!rawUrl) throw new Error('No URL');
-      var fixedUrl = rawUrl.replace(/\\u0026/g, '&');
-      var fullUrl = apiBase() + fixedUrl;
-
-      currentPlaySessionId = info.PlaySessionId;
-      currentMediaStreams = src.MediaStreams || [];
-      if (audioIdx !== undefined) currentAudioIndex = audioIdx;
-      //if (subIdx !== undefined) currentSubtitleIndex = subIdx;
-      currentMediaSourceId = src.Id;
-
-      var currentPlay = Lampa.Player.playdata();
-      if (currentPlay) {
-        var newPlay = Object.assign({}, currentPlay, { url: fullUrl });
-        newPlay.timeline = { time: startTicks / 10000000 };
-        remoteLog('[Jellyfin] final newPlay:', newPlay);
-        Lampa.Player.close();
-        Lampa.Player.play(newPlay);
+  function streamUrl(itemId, opts) {
+    opts = opts || {};
+    var id = String(itemId || '');
+    if (!id) return Promise.reject(new Error('No item id'));
+  
+    var userId = opts.userId || '';
+    var startTicks = opts.startTicks || 0;
+    var deviceId = getDeviceId();
+    var maxStreamingBitrate = 690826541; // фиксированное значение из примера
+  
+    var postBody = {
+      UserId: userId,
+      DeviceId: deviceId,
+      StartTimeTicks: startTicks,
+      IsPlayback: true,
+      AutoOpenLiveStream: true,
+      MaxStreamingBitrate: maxStreamingBitrate,
+      AlwaysBurnInSubtitleWhenTranscoding: true,
+      DeviceProfile: {
+        MaxStreamingBitrate: 120000000,
+        MaxStaticBitrate: 100000000,
+        MusicStreamingTranscodingBitrate: 384000,
+        DirectPlayProfiles: [
+          { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'mov', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
+          { Container: 'mp3', Type: 'Audio' },
+          { Container: 'aac', Type: 'Audio' },
+          { Container: 'wav', Type: 'Audio' },
+          { Container: 'ogg', Type: 'Audio' },
+          { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac,mp2' },
+          { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' }
+        ],
+        TranscodingProfiles: [
+          { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
+          { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
+          { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: 1920, IsRequired: false }] }
+        ],
+        ContainerProfiles: [],
+        CodecProfiles: [
+          { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+          { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
+          { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+          { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false }, { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false }, { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }] },
+          { Type: 'Video', Codec: 'av1', Conditions: [{ Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false }, { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }] },
+          { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: 1920, IsRequired: false }] }
+        ],
+        SubtitleProfiles: [
+          { Format: 'ass', Method: 'HLS' },
+          { Format: 'ssa', Method: 'HLS' },
+          { Format: 'srt', Method: 'HLS' }
+        ],
+        ResponseProfiles: [
+          { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
+        ]
       }
+    };
+  
+    var url = apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+    return jfHttp(url, {
+      method: 'POST',
+      jsonBody: postBody,
+      dataType: 'json'
+    }).then(function(response) {
+      var sources = response.MediaSources || [];
+      if (sources.length === 0) throw new Error('No media sources');
+      var transcodingUrl = sources[0].TranscodingUrl;
+      if (!transcodingUrl) throw new Error('No TranscodingUrl');
+	  console.error('url', apiBase() + transcodingUrl.replace(/\\u0026/g, '&'));
+      return apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
     });
   }
 
-  // --- Настройка дорожек и субтитров в плеере ---
-  function setupTracksForJellyfin() {
-    Lampa.Player.listener.follow('ready', function (data) {
-      if (!currentMediaStreams || !currentMediaStreams.length) return;
+  function playItemFromRow(row, userId, includeMovie, opts) {
+    opts = opts || {};
+    var variant;
+    if (opts.qualityTarget && !usesLampaNativePlayer()) {
+      variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
+    } else {
+      variant = resolvePlayVariant(row);
+    }
+    var playTarget = rowWithVariant(row, variant);
+    var streamOpts = {
+      userId: userId,
+      startTicks: rowStartTicks(playTarget),
+      mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
+    };
+    var qualityMap = !opts.singleStream && transcodingEnabled()
+      ? buildStreamQualityMap(playTarget.id, streamOpts)
+      : null;
+    var item = {
+      title: row.title,
+      url: streamUrl(playTarget.id, streamOpts),
+    };
+    if (playTarget.resumeSec > 0) {
+      item.timeline = includeMovie
+        ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
+        : { time: playTarget.resumeSec };
+    }
+    if (qualityMap) item.quality = qualityMap;
+    if (includeMovie) item.movie = playTarget.raw;
+    return item;
+  }
 
-      var audioStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Audio'; });
-      var subStreams = currentMediaStreams.filter(function (s) { return s.Type === 'Subtitle'; });
-
-      var tracks = audioStreams.map(function (stream) {
-        var label = stream.DisplayTitle || stream.Language || ('Audio ' + stream.Index);
-        var selected = (stream.Index === currentAudioIndex);
-        var track = {
-          index: stream.Index,
-          language: stream.Language || '',
-          label: label,
-          selected: selected
-        };
-        Object.defineProperty(track, 'enabled', {
-          set: function (v) {
-            if (v) {
-              var itemId = currentItemId;
-              var userId = currentUserId;
-              var startTicks = (Lampa.Player.playdata() && Lampa.Player.playdata().timeline) ?
-                (Lampa.Player.playdata().timeline.time * 10000000) : 0;
-              updatePlayerWithNewStreams(itemId, userId, stream.Index, startTicks);
-              tracks.forEach(function (t) { t.selected = false; });
-              track.selected = true;
-              Lampa.PlayerPanel.setTracks(tracks);
-            }
-          },
-          get: function () { return track.selected; }
-        });
-        return track;
-      });
-
-      // var subs = subStreams.map(function (stream) {
-        // var label = stream.DisplayTitle || stream.Language || ('Subtitle ' + stream.Index);
-        // var selected = (stream.Index === currentSubtitleIndex);
-        // var sub = {
-          // index: stream.Index,
-          // language: stream.Language || '',
-          // label: label,
-          // selected: selected,
-          // mode: selected ? 'showing' : 'disabled'
-        // };
-        // if (stream.DeliveryUrl) {
-          // var fixedSubUrl = stream.DeliveryUrl.replace(/\\u0026/g, '&');
-          // sub.url = apiBase() + fixedSubUrl;
-        // }
-        // Object.defineProperty(sub, 'mode', {
-          // set: function (v) {
-            // if (v === 'showing') {
-              // var itemId = currentItemId;
-              // var userId = currentUserId;
-              // var startTicks = (Lampa.Player.playdata() && Lampa.Player.playdata().timeline) ?
-                // (Lampa.Player.playdata().timeline.time * 10000000) : 0;
-              // updatePlayerWithNewStreams(itemId, userId, currentAudioIndex, stream.Index, startTicks);
-              // subs.forEach(function (s) { s.selected = false; s.mode = 'disabled'; });
-              // sub.selected = true;
-              // sub.mode = 'showing';
-              // Lampa.PlayerPanel.setSubs(subs);
-            // }
-          // },
-          // get: function () { return sub.selected ? 'showing' : 'disabled'; }
-        // });
-        // return sub;
-      // });
-
-      if (tracks.length) Lampa.PlayerPanel.setTracks(tracks);
-      //if (subs.length) Lampa.PlayerPanel.setSubs(subs);
+  function playlistFromRows(rows, userId, opts) {
+    return rows.map(function (row) {
+      return playItemFromRow(row, userId, false, opts);
     });
   }
 
-  // --- Функции для работы с элементами (каталог, хаб, карточки) ---
+  function ticksToSeconds(ticks) {
+    var n = Number(ticks);
+    if (!isFinite(n) || n <= 0) return 0;
+    return Math.floor(n / 10000000);
+  }
+
   function tmdbFromItem(item) {
     if (!item || !item.ProviderIds) return null;
     var id = item.ProviderIds.Tmdb || item.ProviderIds.tmdb;
@@ -791,6 +868,513 @@
     return '';
   }
 
+  function videoStreamHeight(source) {
+    var streams = (source && source.MediaStreams) || [];
+    var h = 0;
+    var i;
+    for (i = 0; i < streams.length; i++) {
+      if (streams[i].Type !== 'Video') continue;
+      h = Math.max(h, Number(streams[i].Height) || 0);
+    }
+    return h;
+  }
+
+  function qualityFromHeight(height) {
+    var h = Number(height) || 0;
+    if (h >= 2160) return '4K';
+    if (h >= 1080) return '1080p';
+    if (h >= 720) return '720p';
+    if (h >= 480) return '480p';
+    return '';
+  }
+
+  function mediaSourceQuality(source) {
+    if (!source) return '';
+    var q = detectQuality(source.Name);
+    if (q) return q;
+    var streams = source.MediaStreams || [];
+    var i;
+    for (i = 0; i < streams.length; i++) {
+      if (streams[i].Type !== 'Video') continue;
+      var h = Number(streams[i].Height) || 0;
+      q = qualityFromHeight(h);
+      if (q) return q;
+      var title = String(streams[i].DisplayTitle || '');
+      if (/\b4K\b/i.test(title)) return '4K';
+    }
+    q = qualityFromHeight(videoStreamHeight(source));
+    if (q) return q;
+    return detectQuality(String(source.Container || ''));
+  }
+
+  function qualityLabelFromItem(item) {
+    if (!item) return '';
+    var sources = item.MediaSources || [];
+    if (sources.length > 1) {
+      var labels = [];
+      sources.forEach(function (source) {
+        var q = mediaSourceQuality(source);
+        if (q && labels.indexOf(q) < 0) labels.push(q);
+      });
+      labels.sort(function (a, b) {
+        return qualityRank(b) - qualityRank(a);
+      });
+      if (labels.length) return labels.join(' / ');
+    }
+    if (sources.length === 1) return mediaSourceQuality(sources[0]) || detectQuality(item.Name);
+    return detectQuality(item.Name);
+  }
+
+  function fetchItemMediaSources(itemId) {
+    return resolveUserId().then(function (userId) {
+      return jfHttp(
+        '/Items/' +
+        encodeURIComponent(itemId) +
+        '?UserId=' +
+        encodeURIComponent(userId) +
+        '&Fields=' +
+        encodeURIComponent('MediaSources')
+      );
+    });
+  }
+
+  function variantsFromItemDetails(item, row) {
+    var sources = (item && item.MediaSources) || [];
+    if (!sources.length) return [variantFromRow(row)];
+    return sources.map(function (ms) {
+      return {
+        itemId: item.Id,
+        mediaSourceId: ms.Id,
+        id: item.Id,
+        quality: mediaSourceQuality(ms) || variantQualityKey(row),
+        raw: item,
+        resumeSec: row.resumeSec,
+        playedPct: row.playedPct,
+        watched: row.watched,
+      };
+    });
+  }
+
+  function hydrateRowVariantsFromItem(row) {
+    var item = row.raw || {};
+    var sources = item.MediaSources || [];
+    if (sources.length > 1) {
+      var variants = variantsFromItemDetails(item, row);
+      if (variants.length > 1) {
+        row.variants = variants;
+        row.variantsResolved = true;
+        updateRowQualityLabel(row);
+      }
+    }
+    return row;
+  }
+
+  function variantsNeedResolve(row) {
+    if (!row || row.variantsResolved) return false;
+    var raw = row.raw || {};
+    if (Number(raw.MediaSourceCount) > 1) return true;
+    if (hasMultipleVariants(row)) {
+      return !row.variants.every(function (v) {
+        return !!v.mediaSourceId;
+      });
+    }
+    return false;
+  }
+
+  function ensurePlaybackVariants(row) {
+    if (!row) return Promise.resolve(row);
+    normalizeVariants(row);
+    if (!variantsNeedResolve(row)) return Promise.resolve(row);
+
+    var itemIds = [];
+    if (hasMultipleVariants(row)) {
+      row.variants.forEach(function (v) {
+        var itemId = v.itemId || v.id;
+        if (itemId && itemIds.indexOf(itemId) < 0) itemIds.push(itemId);
+      });
+    } else {
+      itemIds.push(row.id);
+    }
+
+    return Promise.all(
+      itemIds.map(function (itemId) {
+        var base = row;
+        if (hasMultipleVariants(row)) {
+          row.variants.forEach(function (v) {
+            if ((v.itemId || v.id) === itemId) base = rowWithVariant(row, v);
+          });
+        }
+        return fetchItemMediaSources(itemId).then(function (item) {
+          return variantsFromItemDetails(item, base);
+        });
+      })
+    )
+      .then(function (parts) {
+        var merged = [];
+        parts.forEach(function (list) {
+          list.forEach(function (v) {
+            var exists = merged.some(function (m) {
+              return m.mediaSourceId === v.mediaSourceId;
+            });
+            if (!exists) merged.push(v);
+          });
+        });
+        merged.sort(function (a, b) {
+          return qualityRank(b.quality) - qualityRank(a.quality);
+        });
+        if (merged.length) {
+          row.variants = merged;
+          row.variantsResolved = true;
+          updateRowQualityLabel(row);
+        }
+        return row;
+      })
+      .catch(function () {
+        return row;
+      });
+  }
+
+  function qualityRank(key) {
+    if (key === '4K' || key === '2160p') return 4;
+    if (key === '1080p') return 3;
+    if (key === '720p') return 2;
+    if (key === 'HDR') return 1;
+    return 0;
+  }
+
+  function lampaQualityKey(label) {
+    var s = String(label || '').trim();
+    if (!s) return '';
+    if (s === '4K' || /2160/i.test(s)) return '2160p';
+    if (/^\d+p$/i.test(s)) return s.toLowerCase();
+    if (s === 'HDR' || /hdr/i.test(s)) return '2160p';
+    if (/1080/i.test(s)) return '1080p';
+    if (/720/i.test(s)) return '720p';
+    if (/480/i.test(s)) return '480p';
+    return s;
+  }
+
+  function resolvePlayVariant(row) {
+    if (!hasMultipleVariants(row)) return variantFromRow(row);
+    if (row.mediaSourceId) {
+      var matched = null;
+      row.variants.forEach(function (v) {
+        if (v.mediaSourceId === row.mediaSourceId) matched = v;
+      });
+      if (matched) return matched;
+    }
+    return pickDefaultVariant(row);
+  }
+
+  function variantQualityKey(row) {
+    return row.quality || detectQuality((row.raw && row.raw.Name) || '') || '';
+  }
+
+  function variantFromRow(row) {
+    var raw = row.raw || {};
+    var sources = raw.MediaSources || [];
+    if (sources.length === 1) {
+      var ms = sources[0];
+      return {
+        itemId: row.id,
+        mediaSourceId: ms.Id,
+        id: row.id,
+        quality: mediaSourceQuality(ms) || variantQualityKey(row),
+        raw: raw,
+        resumeSec: row.resumeSec,
+        playedPct: row.playedPct,
+        watched: row.watched,
+      };
+    }
+    return {
+      itemId: row.id,
+      mediaSourceId: row.mediaSourceId || row.id,
+      id: row.id,
+      quality: variantQualityKey(row),
+      raw: raw,
+      resumeSec: row.resumeSec,
+      playedPct: row.playedPct,
+      watched: row.watched,
+    };
+  }
+
+  function normalizeVariants(row) {
+    if (!row.variants) row.variants = [variantFromRow(row)];
+    return row;
+  }
+
+  function updateRowQualityLabel(row) {
+    if (!row.variants || row.variants.length < 2) return row;
+    var labels = [];
+    row.variants.forEach(function (v) {
+      if (v.quality && labels.indexOf(v.quality) < 0) labels.push(v.quality);
+    });
+    labels.sort(function (a, b) {
+      return qualityRank(b) - qualityRank(a);
+    });
+    if (labels.length) row.quality = labels.join(' / ');
+    return row;
+  }
+
+  function addVariantToRow(primary, row) {
+    normalizeVariants(primary);
+    var incoming = variantFromRow(row);
+    var exists = primary.variants.some(function (v) {
+      return (
+        (incoming.mediaSourceId && v.mediaSourceId === incoming.mediaSourceId) ||
+        ((v.itemId || v.id) === (incoming.itemId || incoming.id) && v.quality === incoming.quality)
+      );
+    });
+    if (!exists) primary.variants.push(incoming);
+    primary.variants.sort(function (a, b) {
+      return qualityRank(b.quality) - qualityRank(a.quality);
+    });
+    return updateRowQualityLabel(primary);
+  }
+
+  function mergeTmdbRows(current, incoming) {
+    if (!current) return updateRowQualityLabel(normalizeVariants(incoming));
+    normalizeVariants(current);
+    normalizeVariants(incoming);
+    if (itemScore(incoming.raw) > itemScore(current.raw)) {
+      var kept = current.variants.slice();
+      incoming = normalizeVariants(incoming);
+      kept.forEach(function (v) {
+        if (v.id !== incoming.id) {
+          addVariantToRow(incoming, {
+            id: v.id,
+            raw: v.raw,
+            quality: v.quality,
+            resumeSec: v.resumeSec,
+            playedPct: v.playedPct,
+            watched: v.watched,
+          });
+        }
+      });
+      addVariantToRow(incoming, current);
+      return incoming;
+    }
+    addVariantToRow(current, incoming);
+    return current;
+  }
+
+  function hasMultipleVariants(row) {
+    return !!(row && row.variants && row.variants.length > 1);
+  }
+
+  function rowWithVariant(row, variant) {
+    if (!variant) return row;
+    return Object.assign({}, row, {
+      id: variant.itemId || variant.id,
+      mediaSourceId: variant.mediaSourceId || variant.id,
+      raw: variant.raw,
+      quality: variant.quality,
+      resumeSec: variant.resumeSec,
+      playedPct: variant.playedPct,
+      watched: variant.watched,
+      variants: row.variants,
+      variantsResolved: row.variantsResolved,
+    });
+  }
+
+  function pickDefaultVariant(row) {
+    if (!hasMultipleVariants(row)) return variantFromRow(row);
+    var pref = defaultStreamQualityKey();
+    var picked = null;
+    row.variants.forEach(function (v) {
+      if (lampaQualityKey(v.quality) === pref) picked = v;
+    });
+    return picked || row.variants[0];
+  }
+
+  function defaultStreamQualityKey() {
+    try {
+      var def = parseInt(
+        Lampa.Storage.field('video_quality_default') ||
+        Lampa.Storage.get('video_quality_default', '1080'),
+        10
+      );
+      if (def >= 2160) return '2160p';
+      if (def >= 1080) return '1080p';
+      if (def >= 720) return '720p';
+      return '480p';
+    } catch (e) {
+      return '1080p';
+    }
+  }
+
+  function findVariantForQuality(row, target) {
+    if (!row || !target) return null;
+    normalizeVariants(row);
+    var want = lampaQualityKey(target) || String(target);
+    var found = null;
+    row.variants.forEach(function (v) {
+      if (lampaQualityKey(v.quality) === want) found = v;
+    });
+    return found;
+  }
+
+  function externalPlayerSubtitle() {
+    var id = activePlayerId();
+    if (!id || id === 'inner' || id === 'lampa') return '';
+    return id.charAt(0).toUpperCase() + id.slice(1);
+  }
+
+  function qualityMenuLabel(target) {
+    if (target === '2160p') return Lampa.Lang.translate('jellyfin_play_4k');
+    if (target === '1080p') return Lampa.Lang.translate('jellyfin_play_1080');
+    if (target === '720p') return '720p';
+    return String(target || '');
+  }
+
+  function collectExternalQualityKeys(row) {
+    var seen = {};
+    function addKey(label) {
+      var key = lampaQualityKey(label);
+      if (key === '2160p' || key === '1080p') seen[key] = true;
+    }
+    normalizeVariants(row);
+    (row.variants || []).forEach(function (v) {
+      addKey(v.quality);
+    });
+    var sources = (row.raw && row.raw.MediaSources) || [];
+    sources.forEach(function (ms) {
+      addKey(mediaSourceQuality(ms));
+    });
+    var label = String(row.quality || '');
+    if (/4K|2160/i.test(label)) seen['2160p'] = true;
+    if (/1080/i.test(label)) seen['1080p'] = true;
+    return seen;
+  }
+
+  function externalQualityTargetsFromSeen(seen) {
+    var out = [];
+    if (seen['2160p']) out.push('2160p');
+    if (seen['1080p']) out.push('1080p');
+    return out;
+  }
+
+  function guessExternalQualityTargets(row) {
+    if (!row || row.type === 'Series') return [];
+    return externalQualityTargetsFromSeen(collectExternalQualityKeys(row));
+  }
+
+  function needsExternalQualityPrefetch(row) {
+    if (!row || row.type === 'Series' || usesLampaNativePlayer()) return false;
+    if (guessExternalQualityTargets(row).length >= 2) return false;
+    var raw = row.raw || {};
+    if (Number(raw.MediaSourceCount) > 1) return true;
+    return variantsNeedResolve(row);
+  }
+
+  function prepareRowForExternalQuality(row) {
+    if (!needsExternalQualityPrefetch(row)) return Promise.resolve(row);
+    return ensurePlaybackVariants(row);
+  }
+
+  function buildPlayMenuItems(row) {
+    if (row.type === 'Series' || usesLampaNativePlayer()) {
+      return [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
+    }
+    var targets = guessExternalQualityTargets(row);
+    var sub = externalPlayerSubtitle();
+    if (targets.length >= 2) {
+      return targets.map(function (target) {
+        return {
+          title: qualityMenuLabel(target),
+          subtitle: sub,
+          action: 'play_quality',
+          qualityTarget: target,
+        };
+      });
+    }
+    return [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
+  }
+
+  function showExternalQualityPicker(row, allRows) {
+    var ctl = enabledControllerName();
+    var targets = guessExternalQualityTargets(row);
+    if (targets.length < 2) {
+      playEpisodeRow(row, allRows);
+      return;
+    }
+    Lampa.Select.show({
+      title: Lampa.Lang.translate('jellyfin_pick_quality'),
+      items: targets.map(function (target) {
+        return {
+          title: qualityMenuLabel(target),
+          subtitle: externalPlayerSubtitle(),
+          qualityTarget: target,
+        };
+      }),
+      onBack: function () {
+        restoreController(ctl);
+      },
+      onSelect: function (sel) {
+        if (!sel || !sel.qualityTarget) return;
+        launchPlayerFromSelect(ctl, function () {
+          var variant = findVariantForQuality(row, sel.qualityTarget);
+          if (!variant) {
+            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+            return;
+          }
+          playRow(rowWithVariant(row, variant), allRows, {
+            singleStream: true,
+            qualityTarget: sel.qualityTarget,
+          });
+        });
+      },
+    });
+  }
+
+  function playEpisodeRow(row, allRows) {
+    ensurePlaybackVariants(row)
+      .then(function (ready) {
+        if (!usesLampaNativePlayer()) {
+          var targets = guessExternalQualityTargets(ready);
+          if (targets.length >= 2) {
+            showExternalQualityPicker(ready, allRows);
+            return;
+          }
+          var streamOpts = { singleStream: true };
+          var variant = null;
+          if (targets.length === 1) {
+            streamOpts.qualityTarget = targets[0];
+            variant = findVariantForQuality(ready, targets[0]);
+          }
+          if (!variant) variant = resolvePlayVariant(ready);
+          playRow(rowWithVariant(ready, variant), allRows, streamOpts);
+          return;
+        }
+        playRow(ready, allRows);
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
+  }
+
+  function playMediaRowQuality(row, qualityTarget) {
+    ensurePlaybackVariants(row)
+      .then(function (ready) {
+        if (ready.type === 'Series') {
+          playMediaRowDirect(ready);
+          return;
+        }
+        var variant = findVariantForQuality(ready, qualityTarget);
+        if (!variant) {
+          Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+          return;
+        }
+        playRow(rowWithVariant(ready, variant), null, {
+          singleStream: true,
+          qualityTarget: qualityTarget,
+        });
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
+  }
+
   function pad2(n) {
     n = Number(n) || 0;
     return n < 10 ? '0' + n : String(n);
@@ -807,7 +1391,7 @@
     item = item || {};
     return {
       season: Number(item.ParentIndexNumber) || 0,
-      episode: Number(item.IndexNumber) || 0
+      episode: Number(item.IndexNumber) || 0,
     };
   }
 
@@ -834,7 +1418,7 @@
       if (na.season !== nb.season) return na.season - nb.season;
       if (na.episode !== nb.episode) return na.episode - nb.episode;
       return String(a.title || '').localeCompare(String(b.title || ''), undefined, {
-        sensitivity: 'base'
+        sensitivity: 'base',
       });
     });
   }
@@ -889,7 +1473,7 @@
     var tmdb = tmdbFromItem(item);
     var jellyPoster = posterUrl(item);
     var displayTitle = meta ? displayTitleFromMeta(item, meta) : cardTitle(item);
-    return {
+    return hydrateRowVariantsFromItem({
       id: item.Id,
       raw: item,
       title: displayTitle,
@@ -904,28 +1488,21 @@
             : IMG_PLACEHOLDER,
       type: item.Type || '',
       tmdb: tmdb,
-      quality: detectQuality(item.Name),
+      quality: qualityLabelFromItem(item),
       rating:
         item.CommunityRating && Number(item.CommunityRating) > 0
           ? parseFloat(item.CommunityRating).toFixed(1)
           : '',
       resumeSec: item.UserData ? ticksToSeconds(item.UserData.PlaybackPositionTicks) : 0,
       playedPct: item.UserData ? Number(item.UserData.PlayedPercentage) || 0 : 0,
-      watched: !!(item.UserData && item.UserData.Played)
-    };
-  }
-
-  function ticksToSeconds(ticks) {
-    var n = Number(ticks);
-    if (!isFinite(n) || n <= 0) return 0;
-    return Math.floor(n / 10000000);
+      watched: !!(item.UserData && item.UserData.Played),
+    });
   }
 
   function fetchTmdbMeta(tmdb) {
-    var key = tmdb.method + '/' + tmdb.id;
-    if (tmdbMetaCache[key]) return Promise.resolve(tmdbMetaCache[key]);
-    var lang =
-      Lampa.Storage.field('tmdb_lang') || Lampa.Storage.get('language') || 'en';
+    var cached = readTmdbMetaCache(tmdb);
+    if (cached) return Promise.resolve(cached);
+    var lang = currentTmdbLang();
     var url = Lampa.TMDB.api(
       tmdb.method +
       '/' +
@@ -948,9 +1525,9 @@
             (data.release_date || data.first_air_date || '').slice(0, 4) || ''
           ),
           poster: data.poster_path ? buildTmdbImageUrl(data.poster_path) : '',
-          subtitle: data.tagline || ''
+          subtitle: data.tagline || '',
         };
-        tmdbMetaCache[key] = meta;
+        writeTmdbMetaCache(tmdb, meta);
         return meta;
       })
       .catch(function () {
@@ -999,7 +1576,7 @@
     rows.forEach(function (row) {
       if (row.tmdb) {
         var key = row.tmdb.method + '/' + row.tmdb.id;
-        if (!best[key] || itemScore(row.raw) > itemScore(best[key].raw)) best[key] = row;
+        best[key] = mergeTmdbRows(best[key], row);
       } else {
         loose.push(row);
       }
@@ -1039,14 +1616,33 @@
     });
   }
 
+  function dedupeEpisodeRows(rows) {
+    var best = {};
+    rows.forEach(function (row) {
+      var raw = row.raw || {};
+      var key =
+        String(raw.SeriesId || '') +
+        '/' +
+        String(raw.ParentIndexNumber || 0) +
+        '/' +
+        String(raw.IndexNumber || 0);
+      best[key] = mergeTmdbRows(best[key], row);
+    });
+    return sortEpisodeRows(
+      Object.keys(best).map(function (k) {
+        return best[k];
+      })
+    );
+  }
+
   function processRows(items, category) {
     var rows = items.map(function (item) {
       return mapRow(item);
     });
     if (category === 'Episode') {
-      rows = sortEpisodeRows(rows);
+      rows = dedupeEpisodeRows(rows);
       return enrichRowsFromTmdb(rows).then(function (enriched) {
-        return sortEpisodeRows(enriched);
+        return dedupeEpisodeRows(enriched);
       });
     }
     if (storageToggle('Dedupe', true)) rows = dedupeRows(rows);
@@ -1055,17 +1651,22 @@
     });
   }
 
-  function listPath(category, userId, startIndex) {
+  function listFieldsQuery(startIndex) {
     var fields =
-      'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,OfficialRating,RunTimeTicks';
-    var common =
+      'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,OfficialRating,RunTimeTicks,MediaSourceCount,MediaSources';
+    return (
       'StartIndex=' +
       (startIndex || 0) +
       '&Limit=' +
       PAGE_SIZE +
       '&Fields=' +
       encodeURIComponent(fields) +
-      '&EnableImageTypes=Primary&SortBy=SortName&SortOrder=Ascending';
+      '&EnableImageTypes=Primary&SortBy=SortName&SortOrder=Ascending'
+    );
+  }
+
+  function listPath(category, userId, startIndex) {
+    var common = listFieldsQuery(startIndex);
 
     if (category === 'Resume') {
       return (
@@ -1093,7 +1694,7 @@
       PAGE_SIZE +
       '&Fields=' +
       encodeURIComponent(
-        'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,RunTimeTicks'
+        'ProviderIds,ImageTags,ProductionYear,SeriesName,ParentIndexNumber,IndexNumber,UserData,SeriesId,SeriesPrimaryImageTag,CommunityRating,RunTimeTicks,MediaSourceCount,MediaSources'
       ) +
       '&EnableImageTypes=Primary'
     );
@@ -1112,7 +1713,7 @@
           rows: rows,
           total: rows.length,
           next: items.length,
-          hasMore: false
+          hasMore: false,
         };
       });
     });
@@ -1133,7 +1734,7 @@
             rows: rows,
             total: total,
             next: (startIndex || 0) + items.length,
-            hasMore: (startIndex || 0) + items.length < total
+            hasMore: (startIndex || 0) + items.length < total,
           };
         });
       });
@@ -1153,30 +1754,48 @@
         })
         .filter(function (url) {
           return url && url !== IMG_PLACEHOLDER;
-        })
+        }),
     };
   }
 
   function fetchHubData() {
-    return Promise.all([
+    if (hubDataInflight) return hubDataInflight;
+
+    hubDataInflight = Promise.all([
       fetchItems('Resume', 0),
       fetchItems('Latest', 0),
       fetchItems('Movie', 0),
-      fetchItems('Series', 0)
-    ]).then(function (parts) {
-      return {
-        resume: hubSection(parts[0], 'Resume'),
-        latest: hubSection(parts[1], 'Latest'),
-        movies: hubSection(parts[2], 'Movie'),
-        series: hubSection(parts[3], 'Series')
-      };
-    });
+      fetchItems('Series', 0),
+    ])
+      .then(function (parts) {
+        return {
+          resume: hubSection(parts[0], 'Resume'),
+          latest: hubSection(parts[1], 'Latest'),
+          movies: hubSection(parts[2], 'Movie'),
+          series: hubSection(parts[3], 'Series'),
+        };
+      })
+      .finally(function () {
+        hubDataInflight = null;
+      });
+
+    return hubDataInflight;
   }
 
   function bindJellyfinCard($card, row, ctx) {
+    $card.on('hover:touch', function () {
+      if (ctx.onTouch) ctx.onTouch(this, $card, row);
+    });
     $card.on('hover:focus', function () {
       if (ctx.onFocus) ctx.onFocus(this, $card, row);
     });
+    if (ctx.owner) {
+      $card.on('visible', function () {
+        try {
+          if (Lampa.Controller.own(ctx.owner)) Lampa.Controller.collectionAppend($card);
+        } catch (e) { }
+      });
+    }
     if (ctx.interactive !== false) {
       var tapToPlay = ctx.tapToPlay;
       $card.on('hover:enter', function () {
@@ -1221,7 +1840,7 @@
     var title = ctx && ctx.compact ? hubCardTitle(row) : row.title;
     var $card = Lampa.Template.get('card', {
       title: title,
-      release_year: row.year
+      release_year: row.year,
     });
     $card.addClass('card--loaded jellyfin-card');
     if (ctx && ctx.compact) $card.addClass('jellyfin-card--hub-line');
@@ -1250,6 +1869,9 @@
     });
 
     $card.addClass('card--loaded');
+    $card.on('hover:touch', function () {
+      if (opts.onTouch) opts.onTouch(this, $card);
+    });
     $card.on('hover:focus', function () {
       if (onFocus) onFocus(this, $card);
       var bg = posters[0];
@@ -1278,7 +1900,7 @@
         title: Lampa.Lang.translate('jellyfin_movies'),
         count: data.movies.total,
         posters: data.movies.previewPosters,
-        category: 'Movie'
+        category: 'Movie',
       });
     }
     if (data.series.total) {
@@ -1286,7 +1908,7 @@
         title: Lampa.Lang.translate('jellyfin_series'),
         count: data.series.total,
         posters: data.series.previewPosters,
-        category: 'Series'
+        category: 'Series',
       });
     }
     return folders;
@@ -1298,23 +1920,23 @@
       {
         key: 'resume',
         label: Lampa.Lang.translate('jellyfin_stat_resume'),
-        value: data.resume.total
+        value: data.resume.total,
       },
       {
         key: 'latest',
         label: Lampa.Lang.translate('jellyfin_stat_latest'),
-        value: data.latest.total
+        value: data.latest.total,
       },
       {
         key: 'movies',
         label: Lampa.Lang.translate('jellyfin_stat_movies'),
-        value: data.movies.total
+        value: data.movies.total,
       },
       {
         key: 'series',
         label: Lampa.Lang.translate('jellyfin_stat_series'),
-        value: data.series.total
-      }
+        value: data.series.total,
+      },
     ];
     var folders = hubLibraryFolders(data);
 
@@ -1328,9 +1950,9 @@
           return {
             title: stat.label,
             count: stat.value,
-            _jf_stat: stat
+            _jf_stat: stat,
           };
-        })
+        }),
       });
     }
 
@@ -1343,7 +1965,7 @@
         results.push({
           jellyfin_row: row,
           title: hubCardTitle(row),
-          release_year: row.year
+          release_year: row.year,
         });
       });
       if (!results.length) return;
@@ -1355,7 +1977,7 @@
         noimage: true,
         more: spec.total > spec.rows.length,
         nomore: spec.total <= spec.rows.length,
-        results: results
+        results: results,
       });
     }
 
@@ -1365,7 +1987,7 @@
         title: Lampa.Lang.translate('jellyfin_resume'),
         category: 'Resume',
         rows: data.resume.rows,
-        total: data.resume.total
+        total: data.resume.total,
       });
     }
 
@@ -1376,7 +1998,7 @@
         category: 'Latest',
         rows: data.latest.rows,
         total: data.latest.total,
-        folders: folders
+        folders: folders,
       });
     }
 
@@ -1386,7 +2008,7 @@
         title: Lampa.Lang.translate('jellyfin_movies'),
         category: 'Movie',
         rows: data.movies.rows,
-        total: data.movies.total
+        total: data.movies.total,
       });
     }
 
@@ -1396,7 +2018,7 @@
         title: Lampa.Lang.translate('jellyfin_series'),
         category: 'Series',
         rows: data.series.rows,
-        total: data.series.total
+        total: data.series.total,
       });
     }
 
@@ -1420,10 +2042,12 @@
   }
 
   function hubHasContent(data) {
-    return !!(data.resume.rows.length ||
+    return !!(
+      data.resume.rows.length ||
       data.latest.rows.length ||
       data.movies.rows.length ||
-      data.series.rows.length);
+      data.series.rows.length
+    );
   }
 
   function HubFallbackComponent(object, hubCtx) {
@@ -1437,7 +2061,10 @@
       self.activity.loader(true);
       html.append(scroll.render());
 
+      bindScrollLayerVisible(scroll);
+
       scroll.onWheel = function (step) {
+        if (!Lampa.Controller.own(self)) self.start();
         if (step > 0) self.down();
         else if (active > 0) self.up();
       };
@@ -1459,13 +2086,16 @@
             line.onDown = self.down.bind(self);
             line.onUp = self.up.bind(self);
             line.onBack = self.back.bind(self);
+            line.onToggle = function () {
+              scroll.update(line.render());
+            };
             scroll.append(line.render());
             lines.push(line);
           });
           scroll.minus();
           if (lines.length) scroll.update(lines[0].render());
-          if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render()[0]);
-          if (lines.length) {
+          if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render(true));
+          if (lines.length && screenTv()) {
             try {
               var act = Lampa.Activity.active();
               if (act && act.activity === self.activity) lines[active].toggle();
@@ -1512,17 +2142,17 @@
       Lampa.Controller.add('content', {
         link: self,
         toggle: function () {
-          if (lines.length) {
-            scroll.restorePosition();
-            lines[active].toggle();
-          }
+          if (!lines.length) return;
+          scroll.restorePosition();
+          if (screenTv()) lines[active].toggle();
+          else if (lines[active]) scroll.update(lines[active].render());
         },
         left: function () {
           if (Navigator.canmove('left')) Navigator.move('left');
           else Lampa.Controller.toggle('menu');
         },
         right: function () {
-          Navigator.move('right');
+          if (Navigator.canmove('right')) Navigator.move('right');
         },
         up: function () {
           if (Navigator.canmove('up')) Navigator.move('up');
@@ -1533,7 +2163,7 @@
           if (Navigator.canmove('down')) Navigator.move('down');
           else self.down();
         },
-        back: self.back
+        back: self.back,
       });
       Lampa.Controller.toggle('content');
     };
@@ -1564,7 +2194,7 @@
   function HubComponent(object) {
     var hubCtx = {
       tapToPlay: storageToggle('TapPlay', false),
-      cardsById: {}
+      cardsById: {},
     };
 
     attachHubRowListener(hubCtx);
@@ -1572,6 +2202,7 @@
   }
 
   function HubLineFallback(data, hubCtx) {
+    var self = this;
     var content = Lampa.Template.get('items_line', { title: data.title || '' });
     var body = content.find('.items-line__body');
     var scroll = new Lampa.Scroll({ horizontal: true, step: 300 });
@@ -1581,13 +2212,36 @@
     if (data._jf_stats) content.addClass('items-line--jf-stats');
     if (!data.title) content.addClass('items-line--jf-no-title');
 
+    function bindLineFocus($el, focusBg) {
+      $el.on('hover:touch', function (e) {
+        last = e.target;
+      });
+      $el.on('hover:focus', function (e) {
+        last = e.target;
+        scroll.update($el, true);
+        if (focusBg && focusBg !== IMG_PLACEHOLDER) Lampa.Background.change(focusBg);
+      });
+      $el.on('visible', function () {
+        try {
+          if (Lampa.Controller.own(self)) Lampa.Controller.collectionAppend($el);
+        } catch (e) { }
+      });
+    }
+
     this.create = function () {
       scroll.body().addClass('items-cards mapping--line');
       if (data.title) content.find('.items-line__title').text(data.title);
 
+      bindScrollLayerVisible(scroll);
+
+      scroll.onWheel = function (step) {
+        if (!Lampa.Controller.own(self)) self.toggle();
+        var ctl = Lampa.Controller.enabled().controller;
+        if (ctl) ctl[step > 0 ? 'right' : 'left']();
+      };
+
       (data.results || []).forEach(function (element) {
         var $render = null;
-        var focusBg = null;
 
         if (element._jf_stat) {
           var stat = element._jf_stat;
@@ -1599,27 +2253,41 @@
             var category = hubCategoryFromKey(stat.key);
             if (category) openCategory(category);
           });
+          bindLineFocus($render, null);
         } else if (element.jellyfin_folder) {
           var folder = element.jellyfin_folder;
-          $render = makeFolderCard(folder);
-          focusBg = (folder.posters && folder.posters[0]) || null;
+          $render = makeFolderCard(
+            folder,
+            function (el, $card) {
+              last = el;
+              scroll.update($card, true);
+            },
+            {
+              onTouch: function (el) {
+                last = el;
+              },
+            }
+          );
         } else if (element.jellyfin_row) {
           var row = element.jellyfin_row;
+          var rowBg = row.displayPoster || row.poster;
           $render = makeJellyfinCard(row, {
             tapToPlay: hubCtx.tapToPlay,
             cardsById: hubCtx.cardsById,
-            compact: true
+            compact: true,
+            onTouch: function (el) {
+              last = el;
+            },
+            onFocus: function (el, $card) {
+              last = el;
+              scroll.update($card, true);
+              if (rowBg && rowBg !== IMG_PLACEHOLDER) Lampa.Background.change(rowBg);
+            },
           });
-          focusBg = row.displayPoster || row.poster;
         }
 
         if (!$render) return;
 
-        $render.on('hover:focus', function (e) {
-          last = e.target;
-          scroll.update($render, true);
-          if (focusBg && focusBg !== IMG_PLACEHOLDER) Lampa.Background.change(focusBg);
-        });
         scroll.append($render);
       });
 
@@ -1630,7 +2298,7 @@
         $more.on('hover:enter', function () {
           openCategory(data.category);
         });
-        $more.on('hover:focus', function (e) {
+        $more.on('hover:touch hover:focus', function (e) {
           last = e.target;
         });
         content.find('.items-line__head').append($more);
@@ -1639,16 +2307,17 @@
       body.append(scroll.render());
       setTimeout(function () {
         content.trigger('visible');
-        if (Lampa.Layer && Lampa.Layer.visible) Lampa.Layer.visible(scroll.render()[0]);
+        scheduleReflowFocus(scroll, null, last, { layerOnly: true });
       }, 0);
     };
 
     this.toggle = function () {
-      var self = this;
       Lampa.Controller.add('items_line', {
+        link: self,
         toggle: function () {
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
+          Lampa.Controller.collectionSet(scroll.render(true));
+          Lampa.Controller.collectionFocus(last || false, scroll.render(true));
+          if (self.onToggle) self.onToggle();
         },
         right: function () {
           if (Navigator.canmove('right')) Navigator.move('right');
@@ -1661,7 +2330,7 @@
         down: this.onDown,
         up: this.onUp,
         gone: function () { },
-        back: this.onBack
+        back: this.onBack,
       });
       Lampa.Controller.toggle('items_line');
     };
@@ -1685,7 +2354,7 @@
         encodeURIComponent(seriesId) +
         '&IncludeItemTypes=Episode&Recursive=true&Fields=' +
         encodeURIComponent(
-          'ProviderIds,ImageTags,IndexNumber,ParentIndexNumber,UserData,SeriesName,SeriesPrimaryImageTag,Name'
+          'ProviderIds,ImageTags,IndexNumber,ParentIndexNumber,UserData,SeriesName,SeriesPrimaryImageTag,Name,MediaSourceCount,MediaSources'
         ) +
         '&SortBy=ParentIndexNumber&SortBy=IndexNumber&SortOrder=Ascending'
       ).then(function (data) {
@@ -1698,25 +2367,27 @@
     if (!force && libraryIndex.loadedAt && Date.now() - libraryIndex.loadedAt < LIBRARY_INDEX_TTL_MS) {
       return Promise.resolve(libraryIndex.byTmdb);
     }
-    return resolveUserId().then(function (userId) {
-      return jfHttp(
-        '/Items?UserId=' +
-        encodeURIComponent(userId) +
-        '&Recursive=true&IncludeItemTypes=Movie,Series&Fields=' +
-        encodeURIComponent('ProviderIds,Type,Id,Name,UserData,ImageTags') +
-        '&Limit=500'
-      );
-    })
+    if (libraryIndexInflight) return libraryIndexInflight;
+
+    libraryIndexInflight = resolveUserId()
+      .then(function (userId) {
+        return jfHttp(
+          '/Items?UserId=' +
+          encodeURIComponent(userId) +
+          '&Recursive=true&IncludeItemTypes=Movie,Series&Fields=' +
+          encodeURIComponent(
+            'ProviderIds,Type,Id,Name,UserData,ImageTags,MediaSourceCount,MediaSources'
+          ) +
+          '&Limit=500'
+        );
+      })
       .then(function (data) {
         var byTmdb = {};
         ((data && data.Items) || []).forEach(function (item) {
           var tmdb = tmdbFromItem(item);
           if (!tmdb) return;
           var key = tmdb.method + '/' + tmdb.id;
-          var row = mapRow(item);
-          if (!byTmdb[key] || itemScore(item) > itemScore(byTmdb[key].raw)) {
-            byTmdb[key] = row;
-          }
+          byTmdb[key] = mergeTmdbRows(byTmdb[key], mapRow(item));
         });
         libraryIndex.byTmdb = byTmdb;
         libraryIndex.loadedAt = Date.now();
@@ -1724,7 +2395,12 @@
       })
       .catch(function () {
         return libraryIndex.byTmdb;
+      })
+      .finally(function () {
+        libraryIndexInflight = null;
       });
+
+    return libraryIndexInflight;
   }
 
   function findLibraryRow(method, id) {
@@ -1743,11 +2419,24 @@
   }
 
   function deferControllerToggle(name) {
+    restoreController(name);
+  }
+
+  function restoreControllerNow(name) {
+    try {
+      if (name) Lampa.Controller.toggle(name);
+    } catch (e) { }
+  }
+
+  function restoreController(name) {
     setTimeout(function () {
-      try {
-        Lampa.Controller.toggle(name);
-      } catch (e) { }
+      restoreControllerNow(name);
     }, 10);
+  }
+
+  function launchPlayerFromSelect(ctl, launch) {
+    restoreControllerNow(ctl);
+    launch();
   }
 
   function pushCard(tmdb) {
@@ -1756,112 +2445,145 @@
       component: 'full',
       id: tmdb.id,
       method: tmdb.method,
-      source: Lampa.Storage.get('source') || 'tmdb'
+      source: Lampa.Storage.get('source') || 'tmdb',
     });
   }
 
-  // --- Основные функции воспроизведения ---
-  function playRow(row, allRows) {
+  function playRow(row, allRows, opts) {
+    opts = opts || {};
     var rows = allRows && allRows.length ? allRows : [row];
-    resolveUserId()
-      .then(function (userId) {
-        if (row.type === 'Series') {
-          fetchEpisodes(row.id)
-            .then(function (eps) {
-              if (!eps.length) {
-                Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
-                return;
-              }
-              var resume = eps.find(function (ep) {
-                return ep.playedPct > 0 && ep.playedPct < 100;
-              });
-              if (resume) {
-                playSingleItem(resume, eps);
-                return;
-              }
-              if (eps.length === 1) {
-                playSingleItem(eps[0], eps);
-                return;
-              }
-              showEpisodePicker(eps);
-            })
-            .catch(function () {
-              Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-            });
-          return;
-        }
-        playSingleItem(row, rows);
+    var streamOpts = {
+      singleStream: !!opts.singleStream || !usesLampaNativePlayer(),
+      qualityTarget: opts.qualityTarget || '',
+    };
+    var readyPromise =
+      row && row.variantsResolved ? Promise.resolve(row) : ensurePlaybackVariants(row);
+
+    readyPromise
+      .then(function (ready) {
+        return resolveUserId().then(function (userId) {
+          var playItem = playItemFromRow(ready, userId, true, streamOpts);
+          playItem.playlist = playlistFromRows(rows, userId, streamOpts);
+          Lampa.Player.play(playItem);
+        });
       })
-      .catch(function (e) {
+      .catch(function () {
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
 
-  function playMediaRow(row) {
-    playRow(row);
+  function episodePickerItem(row) {
+    var raw = row.raw || {};
+    var code = episodeCodeShort(raw);
+    var name = cleanEpisodeName(raw.Name);
+    var subtitle = name || '';
+    if (row.playedPct >= 100) {
+      subtitle = subtitle
+        ? subtitle + ' · ' + Lampa.Lang.translate('jellyfin_watched')
+        : Lampa.Lang.translate('jellyfin_watched');
+    } else if (row.playedPct > 0) {
+      subtitle = subtitle
+        ? subtitle + ' · ' + Math.round(row.playedPct) + '%'
+        : Math.round(row.playedPct) + '%';
+    }
+    return { title: code, subtitle: subtitle, row: row };
   }
 
-  function playSingleItem(row, allRows) {
-    resolveUserId().then(function (userId) {
-      var startTicks = rowStartTicks(row);
-      if (transcodingEnabled()) {
-        buildPlayObject(row, userId, startTicks)
-          .then(function (playObj) {
-            remoteLog('[Jellyfin] About to call Lampa.Player.play with', playObj);
-            if (allRows && allRows.length > 1) {
-              var playlist = allRows.map(function (r) {
-                return { title: r.title, url: playObj.url };
-              });
-              Lampa.Player.playlist(playlist);
-            }
-            Lampa.Player.play(playObj);
-          })
-          .catch(function (e) {
-            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-          });
-      } else {
-        var opts = { userId: userId, startTicks: startTicks };
-        var url = streamUrl(row.id, opts);
-        var playObj = {
-          title: row.title,
-          url: url,
-          //movie: row.raw,
-          timeline: { time: startTicks / 10000000 }
-        };
-        if (row.resumeSec > 0) {
-          playObj.timeline = { time: row.resumeSec };
-        }
-        remoteLog('[Jellyfin] External player playObj', playObj);
-        Lampa.Player.play(playObj);
-      }
+  function applyWatchedState(row, watched) {
+    row.watched = watched;
+    row.playedPct = watched ? 100 : 0;
+    row.resumeSec = 0;
+    if (!row.raw.UserData) row.raw.UserData = {};
+    row.raw.UserData.Played = watched;
+    row.raw.UserData.PlayedPercentage = watched ? 100 : 0;
+    row.raw.UserData.PlaybackPositionTicks = 0;
+    return row;
+  }
+
+  function setItemWatched(row, watched) {
+    return resolveUserId().then(function (userId) {
+      var path =
+        '/Users/' +
+        encodeURIComponent(userId) +
+        '/PlayedItems/' +
+        encodeURIComponent(row.id);
+      var req = watched
+        ? jfHttp(path, { method: 'POST', jsonBody: {} })
+        : jfHttp(path, { method: 'DELETE', dataType: 'text' });
+      return req.then(function (result) {
+        invalidateUserDataCaches();
+        return result;
+      });
     });
   }
 
-  function streamUrl(itemId, opts) {
-    opts = opts || {};
-    var id = String(itemId || '');
-    if (!id) return '';
-
-    var srcId = opts.mediaSourceId || mediaSourceId(id);
-    var parts = [
-      'DeviceId=' + encodeURIComponent(getDeviceId()),
-      'MediaSourceId=' + encodeURIComponent(srcId),
-      'api_key=' + encodeURIComponent(apiKey())
-    ];
-    if (opts.userId) parts.push('UserId=' + encodeURIComponent(opts.userId));
-    if (opts.startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(opts.startTicks)));
-    if (opts.playSessionId) parts.push('PlaySessionId=' + encodeURIComponent(opts.playSessionId));
-    if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
-      parts.push('AudioStreamIndex=' + encodeURIComponent(opts.audioStreamIndex));
-    }
-    if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
-      parts.push('SubtitleStreamIndex=' + encodeURIComponent(opts.subtitleStreamIndex));
-    }
-    parts.push('Static=true');
-    return apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+  function notifyRowWatchedChange(row, watched) {
+    applyWatchedState(row, watched);
+    Lampa.Bell.push({
+      text: Lampa.Lang.translate(
+        watched ? 'jellyfin_mark_watched_ok' : 'jellyfin_mark_unwatched_ok'
+      ),
+    });
+    try {
+      Lampa.Listener.send('jellyfin:row-updated', { row: row });
+    } catch (e) { }
   }
 
-  // --- Функции меню и карточек ---
+  function showEpisodePicker(rows, onBack) {
+    var ctl = enabledControllerName();
+    Lampa.Select.show({
+      title: Lampa.Lang.translate('jellyfin_pick_episode'),
+      items: rows.map(episodePickerItem),
+      onBack: function () {
+        if (typeof onBack === 'function') onBack();
+        else deferControllerToggle(ctl);
+      },
+      onSelect: function (sel) {
+        if (!sel || !sel.row) return;
+        launchPlayerFromSelect(ctl, function () {
+          playEpisodeRow(sel.row, rows);
+        });
+      },
+    });
+  }
+
+  function playMediaRowDirect(row) {
+    if (row.type === 'Series') {
+      fetchEpisodes(row.id)
+        .then(function (eps) {
+          if (!eps.length) {
+            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
+            return;
+          }
+          var resume = eps.find(function (ep) {
+            return ep.playedPct > 0 && ep.playedPct < 100;
+          });
+          if (resume) {
+            playRow(resume, eps);
+            return;
+          }
+          if (eps.length === 1) {
+            playRow(eps[0], eps);
+            return;
+          }
+          showEpisodePicker(eps);
+        })
+        .catch(function () {
+          Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+        });
+      return;
+    }
+    playRow(row);
+  }
+
+  function playMediaRow(row) {
+    ensurePlaybackVariants(row)
+      .then(playMediaRowDirect)
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
+  }
+
   function openMediaCard(row) {
     var tmdb = row.tmdb;
     if (tmdb) {
@@ -1887,8 +2609,18 @@
   }
 
   function showItemMenu(row) {
+    prepareRowForExternalQuality(row)
+      .then(function (ready) {
+        showItemMenuResolved(ready);
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
+  }
+
+  function showItemMenuResolved(row) {
     var ctl = enabledControllerName();
-    var items = [{ title: Lampa.Lang.translate('jellyfin_play'), action: 'play' }];
+    var items = buildPlayMenuItems(row);
 
     if (row.tmdb || row.type === 'Episode' || row.type === 'Series') {
       items.push({ title: Lampa.Lang.translate('jellyfin_open_card'), action: 'card' });
@@ -1898,25 +2630,43 @@
     }
     items.push({
       title: Lampa.Lang.translate(row.watched ? 'jellyfin_mark_unwatched' : 'jellyfin_mark_watched'),
-      action: row.watched ? 'unwatched' : 'watched'
+      action: row.watched ? 'unwatched' : 'watched',
     });
 
     Lampa.Select.show({
       title: row.title,
       items: items,
       onBack: function () {
-        deferControllerToggle(ctl);
+        restoreController(ctl);
       },
       onSelect: function (sel) {
         if (!sel) return;
-        if (sel.action === 'play') playMediaRow(row);
-        else if (sel.action === 'card') openMediaCard(row);
-        else if (sel.action === 'episodes') {
-          fetchEpisodes(row.id).then(function (eps) {
-            if (!eps.length) Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
-            else showEpisodePicker(eps);
+        if (sel.action === 'play') {
+          launchPlayerFromSelect(ctl, function () {
+            playMediaRow(row);
           });
-        } else if (sel.action === 'watched' || sel.action === 'unwatched') {
+          return;
+        }
+        if (sel.action === 'play_quality') {
+          launchPlayerFromSelect(ctl, function () {
+            playMediaRowQuality(row, sel.qualityTarget);
+          });
+          return;
+        }
+        if (sel.action === 'episodes') {
+          fetchEpisodes(row.id).then(function (eps) {
+            if (!eps.length) {
+              Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_empty') });
+              restoreController(ctl);
+              return;
+            }
+            showEpisodePicker(eps);
+          });
+          return;
+        }
+        restoreController(ctl);
+        if (sel.action === 'card') openMediaCard(row);
+        else if (sel.action === 'watched' || sel.action === 'unwatched') {
           var markWatched = sel.action === 'watched';
           setItemWatched(row, markWatched)
             .then(function () {
@@ -1926,44 +2676,8 @@
               Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
             });
         }
-        deferControllerToggle(ctl);
-      }
+      },
     });
-  }
-
-  function setItemWatched(row, watched) {
-    return resolveUserId().then(function (userId) {
-      var path =
-        '/Users/' +
-        encodeURIComponent(userId) +
-        '/PlayedItems/' +
-        encodeURIComponent(row.id);
-      if (watched) return jfHttp(path, { method: 'POST', jsonBody: {} });
-      return jfHttp(path, { method: 'DELETE', dataType: 'text' });
-    });
-  }
-
-  function applyWatchedState(row, watched) {
-    row.watched = watched;
-    row.playedPct = watched ? 100 : 0;
-    row.resumeSec = 0;
-    if (!row.raw.UserData) row.raw.UserData = {};
-    row.raw.UserData.Played = watched;
-    row.raw.UserData.PlayedPercentage = watched ? 100 : 0;
-    row.raw.UserData.PlaybackPositionTicks = 0;
-    return row;
-  }
-
-  function notifyRowWatchedChange(row, watched) {
-    applyWatchedState(row, watched);
-    Lampa.Bell.push({
-      text: Lampa.Lang.translate(
-        watched ? 'jellyfin_mark_watched_ok' : 'jellyfin_mark_unwatched_ok'
-      )
-    });
-    try {
-      Lampa.Listener.send('jellyfin:row-updated', { row: row });
-    } catch (e) { }
   }
 
   function injectCardChrome($card, row, opts) {
@@ -2013,12 +2727,10 @@
     if (src && src !== IMG_PLACEHOLDER) $card.find('.card__img').attr('src', src);
   }
 
-  // --- Панель категорий ---
   function PanelComponent(object) {
     var self = this;
     var category = (object && object.category) || 'Movie';
-    var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
-    var head = $('<div class="jellyfin-head"></div>');
+    var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250, end_ratio: 2 });
     var body = $('<div class="category-full mapping--grid cols--6 jellyfin-grid"></div>');
     var html = $('<div class="jellyfin-module"></div>');
     var last = null;
@@ -2039,12 +2751,13 @@
 
     Lampa.Listener.follow('jellyfin:row-updated', onRowUpdated);
 
-    scroll.append(head);
     scroll.append(body);
-    scroll.minus(head);
     html.append(scroll.render());
 
+    bindScrollLayerVisible(scroll);
+
     scroll.onWheel = function (step) {
+      if (!Lampa.Controller.own(self)) self.start();
       if (Navigator && Navigator.move) Navigator.move(step > 0 ? 'down' : 'up');
     };
 
@@ -2060,22 +2773,20 @@
       return Lampa.Lang.translate('jellyfin_movies');
     }
 
-    function renderHead() {
-      head.html(
-        '<div class="jellyfin-head__title">' + $('<div>').text(headTitle()).html() + '</div>'
-      );
-    }
-
     function cardCtx() {
       return {
+        owner: self,
         tapToPlay: tapToPlay,
         cardsById: cardsById,
+        onTouch: function (el) {
+          last = el;
+        },
         onFocus: function (el, $card, row) {
           last = el;
           scroll.update($card, false);
           var bg = row.displayPoster || row.poster;
           if (bg && bg !== IMG_PLACEHOLDER) Lampa.Background.change(bg);
-        }
+        },
       };
     }
 
@@ -2095,12 +2806,7 @@
         body.append(makeJellyfinCard(row, cardCtx()));
       });
 
-      setTimeout(function () {
-        try {
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
-        } catch (e) { }
-      }, 0);
+      scheduleReflowFocus(scroll, self, last, { layerOnly: !!append });
     }
 
     function renderEmpty(opts) {
@@ -2128,6 +2834,7 @@
       $box.append($retry);
       body.append($box);
       last = $retry[0];
+      scheduleReflowFocus(scroll, self, last, { animate: true });
     }
 
     function reload() {
@@ -2136,7 +2843,7 @@
         title: headTitle(),
         component: PANEL_COMPONENT,
         category: category,
-        page: 1
+        page: 1,
       });
     }
 
@@ -2148,14 +2855,12 @@
           rows = result.rows;
           startIndex = result.next;
           hasMore = result.hasMore;
-          renderHead();
           buildGrid(rows, false);
         })
         .catch(function () {
-          renderHead();
           renderEmpty({
             title: Lampa.Lang.translate('jellyfin_error'),
-            descr: Lampa.Lang.translate('jellyfin_settings_hint')
+            descr: Lampa.Lang.translate('jellyfin_settings_hint'),
           });
         })
         .then(function () {
@@ -2181,6 +2886,7 @@
     }
 
     this.create = function () {
+      scroll.minus();
       loadInitial();
       return html;
     };
@@ -2188,10 +2894,12 @@
     this.start = function () {
       self.background();
       Lampa.Controller.add('content', {
+        link: self,
         toggle: function () {
           scroll.restorePosition();
-          Lampa.Controller.collectionSet(scroll.render());
-          Lampa.Controller.collectionFocus(last || false, scroll.render());
+          Lampa.Controller.collectionSet(scroll.render(true));
+          Lampa.Controller.collectionFocus(last || false, scroll.render(true));
+          if (last) scroll.update($(last), false);
         },
         left: function () {
           if (Navigator.canmove('left')) Navigator.move('left');
@@ -2207,7 +2915,7 @@
         down: function () {
           if (Navigator.canmove('down')) Navigator.move('down');
         },
-        back: self.back
+        back: self.back,
       });
       Lampa.Controller.toggle('content');
     };
@@ -2242,7 +2950,7 @@
       title: title,
       component: PANEL_COMPONENT,
       category: category,
-      page: 1
+      page: 1,
     });
   }
 
@@ -2251,7 +2959,7 @@
       url: '',
       title: Lampa.Lang.translate('jellyfin_title'),
       component: HUB_COMPONENT,
-      page: 1
+      page: 1,
     });
   }
 
@@ -2264,29 +2972,65 @@
       var id = String(e.object.id || '');
       if (!method || !id) return;
 
-      function mountButton(row) {
-        if (!row || !e.object.activity || typeof e.object.activity.render !== 'function') return;
-        var $root = e.object.activity.render();
-        if ($root.find('.button--jellyfin').length) return;
-
-        var label = Lampa.Lang.translate('jellyfin_play_from_library');
-        if (row.playedPct > 0 && row.playedPct < 100) {
-          label += ' (' + Math.round(row.playedPct) + '%)';
-        }
-
+      function mountFullCardButton(label, onEnter) {
         var $btn = $(
           '<div class="full-start__button selector button--jellyfin" data-subtitle="Jellyfin">' +
           FULLSTART_BTN_ICON +
           '<span></span></div>'
         );
         $btn.find('span').text(label);
-        $btn.on('hover:enter', function () {
-          playMediaRow(row);
-        });
+        $btn.on('hover:enter', onEnter);
+        return $btn;
+      }
+
+      function mountButton(row) {
+        if (!row || !e.object.activity || typeof e.object.activity.render !== 'function') return;
+        var $root = e.object.activity.render();
+        if ($root.find('.button--jellyfin').length) return;
 
         var $anchor = $root.find('.view--torrent').first();
-        if ($anchor.length) $anchor.after($btn);
-        else $root.find('.full-start-new__buttons').append($btn);
+        var $buttons = $anchor.length
+          ? $anchor
+          : $root.find('.full-start-new__buttons');
+
+        function appendBtn($btn) {
+          if ($anchor.length) $anchor.after($btn);
+          else $buttons.append($btn);
+        }
+
+        function renderButtons(ready) {
+          if ($root.find('.button--jellyfin').length) return;
+
+          if (!usesLampaNativePlayer() && ready.type !== 'Series') {
+            var targets = guessExternalQualityTargets(ready);
+            if (targets.length >= 2) {
+              targets.forEach(function (target) {
+                appendBtn(
+                  mountFullCardButton(qualityMenuLabel(target), function () {
+                    playMediaRowQuality(ready, target);
+                  })
+                );
+              });
+              return;
+            }
+          }
+
+          var label = Lampa.Lang.translate('jellyfin_play_from_library');
+          if (ready.playedPct > 0 && ready.playedPct < 100) {
+            label += ' (' + Math.round(ready.playedPct) + '%)';
+          }
+          appendBtn(
+            mountFullCardButton(label, function () {
+              ensurePlaybackVariants(ready)
+                .then(playMediaRowDirect)
+                .catch(function () {
+                  Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+                });
+            })
+          );
+        }
+
+        prepareRowForExternalQuality(row).then(renderButtons).catch(function () { });
       }
 
       var cached = findLibraryRow(method, id);
@@ -2328,8 +3072,6 @@
     Lampa.Template.add(
       'jellyfin_style',
       '<style>' +
-      '.jellyfin-head{padding:.8em 1em .4em}' +
-      '.jellyfin-head__title{font-size:1.05em;font-weight:700;opacity:.92}' +
       '.jellyfin-hub .items-line--jf-stats{min-height:0!important;padding-bottom:1em}' +
       '.jellyfin-hub .items-line--jf-stats .items-line__body{margin-top:0}' +
       '.jellyfin-hub .items-line--jf-stats .register__name{max-width:none}' +
@@ -2389,8 +3131,9 @@
       '.jellyfin-state__title{font-size:1.1em;font-weight:700;margin-bottom:.6em}' +
       '.jellyfin-state__descr{opacity:.75;margin-bottom:1.2em;line-height:1.45}' +
       '.button--jellyfin{display:inline-flex;align-items:center;gap:.35em}' +
-      '.button--jellyfin .jellyfin-fullstart__icon{width:1.75em;height:1.75em;flex-shrink:0}' +
-      '.torrent-customqbit-icon.jellyfin-head-icon,.jellyfin-head-icon{display:flex;align-items:center;justify-content:center}' +
+      '.button--jellyfin .jellyfin-fullstart__icon{display:block;width:1.75em;height:1.75em;flex-shrink:0}' +
+      '.torrent-dso-qbittorrent-icon.jellyfin-head-icon,.jellyfin-head-icon{display:flex;align-items:center;justify-content:center}' +
+      '.jellyfin-head-icon svg{width:1.35em;height:1.35em}' +
       '</style>'
     );
   }
@@ -2399,13 +3142,13 @@
     Lampa.SettingsApi.addComponent({
       component: SETTINGS_COMPONENT,
       name: Lampa.Lang.translate('jellyfin_settings_name'),
-      icon: MANIFEST.icon
+      icon: MANIFEST.icon,
     });
 
     Lampa.SettingsApi.addParam({
       component: SETTINGS_COMPONENT,
       param: { name: STORAGE_PREFIX + 'Hint', type: 'static' },
-      field: { name: Lampa.Lang.translate('jellyfin_settings_hint') }
+      field: { name: Lampa.Lang.translate('jellyfin_settings_hint') },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2414,7 +3157,7 @@
         name: STORAGE_PREFIX + 'Url',
         type: 'input',
         default: DEFAULT_URL,
-        values: ''
+        values: '',
       },
       field: { name: Lampa.Lang.translate('jellyfin_url') },
       onChange: function () {
@@ -2422,7 +3165,7 @@
         prefetchAutoUser();
         Lampa.Settings.update();
         syncUserInfoField();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2431,7 +3174,7 @@
         name: STORAGE_PREFIX + 'Key',
         type: 'input',
         default: DEFAULT_API_KEY,
-        values: ''
+        values: '',
       },
       field: { name: Lampa.Lang.translate('jellyfin_key') },
       onChange: function () {
@@ -2439,16 +3182,7 @@
         prefetchAutoUser();
         Lampa.Settings.update();
         syncUserInfoField();
-      }
-    });
-
-    Lampa.SettingsApi.addParam({
-      component: SETTINGS_COMPONENT,
-      param: { name: STORAGE_PREFIX + 'LogUrl', type: 'input', default: '', values: '' },
-      field: { name: Lampa.Lang.translate('jellyfin_log_url') },
-      onChange: function () {
-        Lampa.Settings.update();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2456,8 +3190,8 @@
       param: { name: STORAGE_PREFIX + 'UserInfo', type: 'static' },
       field: {
         name: Lampa.Lang.translate('jellyfin_user'),
-        description: currentUserLabel()
-      }
+        description: currentUserLabel(),
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2468,7 +3202,7 @@
         pickUserFromList(function () {
           Lampa.Settings.update();
         });
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2486,7 +3220,7 @@
           .catch(function () {
             Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_auth_fail') });
           });
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2495,7 +3229,7 @@
       field: { name: Lampa.Lang.translate('jellyfin_set_dedupe') },
       onChange: function () {
         Lampa.Settings.update();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2504,7 +3238,7 @@
       field: { name: Lampa.Lang.translate('jellyfin_set_hide_folders') },
       onChange: function () {
         Lampa.Settings.update();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2512,9 +3246,9 @@
       param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'TmdbPosters' },
       field: { name: Lampa.Lang.translate('jellyfin_set_tmdb_posters') },
       onChange: function () {
-        tmdbMetaCache = {};
+        clearTmdbMetaCache();
         Lampa.Settings.update();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2523,7 +3257,7 @@
       field: { name: Lampa.Lang.translate('jellyfin_set_full_button') },
       onChange: function () {
         Lampa.Settings.update();
-      }
+      },
     });
 
     Lampa.SettingsApi.addParam({
@@ -2532,18 +3266,28 @@
       field: { name: Lampa.Lang.translate('jellyfin_set_tap_play') },
       onChange: function () {
         Lampa.Settings.update();
-      }
+      },
+    });
+
+    Lampa.SettingsApi.addParam({
+      component: SETTINGS_COMPONENT,
+      param: { type: 'trigger', default: true, name: STORAGE_PREFIX + 'Transcode' },
+      field: { name: Lampa.Lang.translate('jellyfin_set_transcode') },
+      onChange: function () {
+        Lampa.Settings.update();
+      },
     });
 
     Lampa.SettingsApi.addParam({
       component: SETTINGS_COMPONENT,
       param: { name: STORAGE_PREFIX + 'StreamHint', type: 'static' },
-      field: { name: Lampa.Lang.translate('jellyfin_set_stream_hint') }
+      field: { name: Lampa.Lang.translate('jellyfin_set_stream_hint') },
     });
   }
 
-  // --- Инициализация ---
   function init() {
+    if (window.lampa_settings && window.lampa_settings.read_only) return;
+
     addLang();
     registerStyles();
     $('body').append(Lampa.Template.get('jellyfin_style', {}, true));
@@ -2555,8 +3299,6 @@
     registerMenuButtons();
     injectHeadIcon();
     listenFullCard();
-
-    setupTracksForJellyfin();
 
     prefetchAutoUser();
     refreshLibraryIndex(false).catch(function () { });
