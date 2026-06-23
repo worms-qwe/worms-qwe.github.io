@@ -644,8 +644,6 @@
         var defAudio = streams.find(function (s) { return s.Type === 'Audio' && s.IsDefault === true; });
         var defSub = streams.find(function (s) { return s.Type === 'Subtitle' && s.IsDefault === false; });
         currentAudioIndex = defAudio ? defAudio.Index : undefined;
-        //currentSubtitleIndex = defSub ? defSub.Index : undefined;
-		//currentSubtitleDeliveryUrl = defSub ? defSub.DeliveryUrl : undefined;
 		currentDisplayTitle = defSub ? defSub.DisplayTitle : undefined;
         currentItemId = itemId;
         currentUserId = userId;
@@ -657,7 +655,6 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-		  subtitles: [{ url: apiBase() + ( defSub ? defSub.DeliveryUrl : undefined ), label: currentDisplayTitle }, ],
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
