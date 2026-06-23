@@ -558,7 +558,7 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"vtt","Method":"External"},
+	      //{"Format":"vtt","Method":"External"},
 	      //{"Format":"subrip","Method":"External"},
 	      //{"Format":"srt","Method":"External"},
 	      {"Format":"ass","Method":"External"},
