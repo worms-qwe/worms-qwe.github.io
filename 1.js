@@ -558,14 +558,14 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"ass","Method":"External"},
-	      {"Format":"ssa","Method":"External"}
-	      //{"Format":"subrip","Method":"External"},
-	      //{"Format":"srt","Method":"External"},
-	      //{"Format":"srt","Method":"Embed"},
-		  //{"Format":"srt","Method":"External"},
-	      //{"Format":"srt","Method":"HLS"},
-	      //{"Format":"srt","Method":"Encode"},
+	      {"Format":"ass","Method":"HLS"},
+	      {"Format":"ssa","Method":"HLS"},
+	      {"Format":"srt","Method":"HLS"},
+	      {"Format":"vtt","Method":"HLS"}
+	      //"Method":"Embed"
+		  //"Method":"External"
+	      //"Method":"HLS"},
+	      //"Method":"Encode"},
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
