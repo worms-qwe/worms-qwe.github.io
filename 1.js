@@ -846,6 +846,7 @@
         if (!transcodingUrl) throw new Error('No TranscodingUrl');
         playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
       } else {
+        // Прямой стрим (без транскодирования)
         var parts = [
           'DeviceId=' + encodeURIComponent(deviceId),
           'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
@@ -857,20 +858,15 @@
         playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
       }
   
-      // Извлекаем субтитры и добавляем selected для default
+      // Извлекаем субтитры
       var subtitles = [];
       var streams = source.MediaStreams || [];
       streams.forEach(function(stream) {
         if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-          var sub = {
+          subtitles.push({
             url: apiBase() + stream.DeliveryUrl,
             label: stream.DisplayTitle || stream.Language || 'Subtitle'
-          };
-          // Если IsDefault === true, добавляем selected: true
-          if (stream.IsDefault === true) {
-            sub.selected = true;
-          }
-          subtitles.push(sub);
+          });
         }
       });
   
@@ -922,8 +918,7 @@
           ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
           : { time: playTarget.resumeSec };
       }
-  
-      // Добавляем субтитры в playItem, если они есть
+      // Добавляем субтитры, если есть
       if (result.subtitles && result.subtitles.length) {
         item.subtitles = result.subtitles;
       }
