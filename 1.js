@@ -532,16 +532,16 @@
 	    "MaxStaticBitrate": 100000000,
 	    "MusicStreamingTranscodingBitrate": 384000,
 	    "DirectPlayProfiles": [
-	      {"Container":"mp4,m4v","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
-	      {"Container":"mkv","Type":"Video","VideoCodec":"h264,av1","AudioCodec":"aac,mp3,mp2"},
+	      {"Container":"mp4,m4v","Type":"Video","VideoCodec":"h264,av1,ass,ssa","AudioCodec":"aac,mp3,mp2"},
+	      {"Container":"mkv","Type":"Video","VideoCodec":"h264,av1,ass,ssa","AudioCodec":"aac,mp3,mp2"},
 	      {"Container":"mov","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"},
 	      {"Container":"ts","AudioCodec":"mp3","Type":"Audio"},
 	      {"Container":"mp3","Type":"Audio"},
 	      {"Container":"aac","Type":"Audio"},
 	      {"Container":"wav","Type":"Audio"},
 	      {"Container":"ogg","Type":"Audio"},
-	      {"Container":"hls","Type":"Video","VideoCodec":"av1,h264","AudioCodec":"aac,mp2"},
-	      {"Container":"hls","Type":"Video","VideoCodec":"h264","AudioCodec":"aac,mp3,mp2"}
+	      {"Container":"hls","Type":"Video","VideoCodec":"av1,h264,ass,ssa","AudioCodec":"aac,mp2"},
+	      {"Container":"hls","Type":"Video","VideoCodec":"h264,ass,ssa","AudioCodec":"aac,mp3,mp2"}
 	    ],
 	    "TranscodingProfiles": [
 	      {"Container":"ts","Type":"Audio","AudioCodec":"aac","Context":"Streaming","Protocol":"hls","MaxAudioChannels":"6","MinSegments":"1","BreakOnNonKeyFrames":false,"EnableAudioVbrEncoding":true},
@@ -558,14 +558,14 @@
 	      {"Type":"Video","Conditions":[{"Condition":"LessThanEqual","Property":"Width","Value":1920,"IsRequired":false}]}
 	    ],
 	    "SubtitleProfiles": [
-	      {"Format":"subrip","Method":"External"},
-	      {"Format":"srt","Method":"External"},
+	      {"Format":"ass","Method":"HLS"},
+	      {"Format":"ssa","Method":"HLS"}
+	      //{"Format":"subrip","Method":"External"},
+	      //{"Format":"srt","Method":"External"},
 	      //{"Format":"srt","Method":"Embed"},
 		  //{"Format":"srt","Method":"External"},
 	      //{"Format":"srt","Method":"HLS"},
 	      //{"Format":"srt","Method":"Encode"},
-	      {"Format":"ass","Method":"External"},
-	      {"Format":"ssa","Method":"External"}
 	    ],
 	    "ResponseProfiles": [
 	      {"Type":"Video","Container":"m4v","MimeType":"video/mp4"}
@@ -657,7 +657,7 @@
           title: row.title,
           url: fullUrl,
           //movie: row.raw,
-		  subtitles: [{ url: apiBase() + ( defSub ? defSub.DeliveryUrl : undefined ), label: currentDisplayTitle }, ],
+		  //subtitles: [{ url: apiBase() + ( defSub ? defSub.DeliveryUrl : undefined ), label: currentDisplayTitle }, ],
           timeline: { time: startTicks / 10000000 }
         };
         if (row.resumeSec > 0) {
