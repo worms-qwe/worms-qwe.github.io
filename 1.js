@@ -796,7 +796,7 @@
   
     console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
   
-    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo ;
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo/' ;
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
