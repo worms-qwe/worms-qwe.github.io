@@ -743,7 +743,25 @@
     var userId = opts.userId || '';
     var startTicks = opts.startTicks || 0;
     var deviceId = getDeviceId();
-    var maxStreamingBitrate = 690826541;
+  
+    // ---- Прямой стрим (без транскодирования) ----
+    if (!transcodingEnabled()) {
+      var parts = [
+        'DeviceId=' + encodeURIComponent(deviceId),
+        'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
+        'api_key=' + encodeURIComponent(apiKey()),
+        'Static=true'
+      ];
+      if (userId) parts.push('UserId=' + encodeURIComponent(userId));
+      if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
+      var directUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+      console.error('Jellyfin direct stream URL', directUrl);
+      return Promise.resolve(directUrl);
+    }
+  
+    // ---- Транскодирование с выбором качества ----
+    var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
+    var quality = streamQualityPreset(qualityPresetKey); // { maxWidth, videoBitrate, audioBitrate, maxStreamingBitrate }
   
     var postBody = {
       UserId: userId,
@@ -751,11 +769,13 @@
       StartTimeTicks: startTicks,
       IsPlayback: true,
       AutoOpenLiveStream: true,
-      MaxStreamingBitrate: maxStreamingBitrate,
+      MaxStreamingBitrate: quality.maxStreamingBitrate,
+      VideoBitrate: quality.videoBitrate,
+      AudioBitrate: quality.audioBitrate,
       AlwaysBurnInSubtitleWhenTranscoding: false,
       DeviceProfile: {
-        MaxStreamingBitrate: 120000000,
-        MaxStaticBitrate: 100000000,
+        MaxStreamingBitrate: quality.maxStreamingBitrate,
+        MaxStaticBitrate: quality.maxStreamingBitrate,
         MusicStreamingTranscodingBitrate: 384000,
         DirectPlayProfiles: [
           { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
@@ -772,21 +792,32 @@
         TranscodingProfiles: [
           { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
           { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
-          { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: 1920, IsRequired: false }] }
+          { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
         ],
         ContainerProfiles: [],
         CodecProfiles: [
           { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
           { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
           { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
-          { Type: 'Video', Codec: 'h264', Conditions: [{ Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false }, { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false }, { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }] },
-          { Type: 'Video', Codec: 'av1', Conditions: [{ Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false }, { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false }, { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }] },
-          { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: 1920, IsRequired: false }] }
+          { Type: 'Video', Codec: 'h264', Conditions: [
+            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false },
+            { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
+          ] },
+          { Type: 'Video', Codec: 'av1', Conditions: [
+            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }
+          ] },
+          { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
         ],
         SubtitleProfiles: [
-          { Format: 'ass', Method: 'HLS' },
-          { Format: 'ssa', Method: 'HLS' },
-          { Format: 'srt', Method: 'HLS' }
+          { Format: 'ass', Method: 'External' },
+          { Format: 'ssa', Method: 'External' },
+          { Format: 'srt', Method: 'External' }
         ],
         ResponseProfiles: [
           { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
@@ -794,9 +825,25 @@
       }
     };
   
+    // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
+    postBody.DeviceProfile.CodecProfiles.forEach(function(profile) {
+      if (profile.Conditions) {
+        profile.Conditions.forEach(function(cond) {
+          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+        });
+      }
+    });
+    postBody.DeviceProfile.TranscodingProfiles.forEach(function(profile) {
+      if (profile.Conditions) {
+        profile.Conditions.forEach(function(cond) {
+          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+        });
+      }
+    });
+  
     console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
   
-    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo/' ;
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo' );
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
@@ -812,13 +859,20 @@
       return fullUrl;
     });
   }
+  
   function buildStreamQualityMap(itemId, opts) {
-    if (!transcodingEnabled()) return null;
+    if (!transcodingEnabled()) return Promise.resolve(null);
     var map = {};
-    PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-      map[entry.key] = streamUrl(itemId, Object.assign({}, opts, { qualityPreset: entry.preset }));
+    var baseOpts = Object.assign({}, opts);
+    var promises = PLAYER_TRANSCODE_QUALITIES.map(function(entry) {
+      var localOpts = Object.assign({}, baseOpts, { qualityPreset: entry.preset });
+      return streamUrl(itemId, localOpts).then(function(url) {
+        map[entry.key] = url;
+      });
     });
-    return map;
+    return Promise.all(promises).then(function() {
+      return map;
+    });
   }
 
   function playItemFromRow(row, userId, includeMovie, opts) {
@@ -834,6 +888,7 @@
       userId: userId,
       startTicks: rowStartTicks(playTarget),
       mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
+      qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey()
     };
   
     return streamUrl(playTarget.id, streamOpts).then(function(url) {
@@ -846,8 +901,17 @@
           ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
           : { time: playTarget.resumeSec };
       }
-      if (includeMovie) item.movie = playTarget.raw;
-      return item;
+      // Если транскодирование включено и не singleStream – строим карту качеств
+      if (transcodingEnabled() && !opts.singleStream) {
+        return buildStreamQualityMap(playTarget.id, streamOpts).then(function(qualityMap) {
+          if (qualityMap) item.quality = qualityMap;
+          if (includeMovie) item.movie = playTarget.raw;
+          return item;
+        });
+      } else {
+        if (includeMovie) item.movie = playTarget.raw;
+        return item;
+      }
     });
   }
   
