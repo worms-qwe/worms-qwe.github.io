@@ -752,7 +752,7 @@
       IsPlayback: true,
       AutoOpenLiveStream: true,
       MaxStreamingBitrate: maxStreamingBitrate,
-      AlwaysBurnInSubtitleWhenTranscoding: true,
+      AlwaysBurnInSubtitleWhenTranscoding: false,
       DeviceProfile: {
         MaxStreamingBitrate: 120000000,
         MaxStaticBitrate: 100000000,
@@ -835,27 +835,26 @@
       startTicks: rowStartTicks(playTarget),
       mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
     };
-    var qualityMap = !opts.singleStream && transcodingEnabled()
-      ? buildStreamQualityMap(playTarget.id, streamOpts)
-      : null;
-    var item = {
-      title: row.title,
-      url: streamUrl(playTarget.id, streamOpts),
-    };
-    if (playTarget.resumeSec > 0) {
-      item.timeline = includeMovie
-        ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
-        : { time: playTarget.resumeSec };
-    }
-    if (qualityMap) item.quality = qualityMap;
-    if (includeMovie) item.movie = playTarget.raw;
-    return item;
-  }
-
-  function playlistFromRows(rows, userId, opts) {
-    return rows.map(function (row) {
-      return playItemFromRow(row, userId, false, opts);
+  
+    return streamUrl(playTarget.id, streamOpts).then(function(url) {
+      var item = {
+        title: row.title,
+        url: url,
+      };
+      if (playTarget.resumeSec > 0) {
+        item.timeline = includeMovie
+          ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
+          : { time: playTarget.resumeSec };
+      }
+      if (includeMovie) item.movie = playTarget.raw;
+      return item;
     });
+  }
+  
+  function playlistFromRows(rows, userId, opts) {
+    return Promise.all(rows.map(function(row) {
+      return playItemFromRow(row, userId, false, opts);
+    }));
   }
 
   function ticksToSeconds(ticks) {
@@ -2472,16 +2471,19 @@
     };
     var readyPromise =
       row && row.variantsResolved ? Promise.resolve(row) : ensurePlaybackVariants(row);
-
+  
     readyPromise
-      .then(function (ready) {
-        return resolveUserId().then(function (userId) {
-          var playItem = playItemFromRow(ready, userId, true, streamOpts);
-          playItem.playlist = playlistFromRows(rows, userId, streamOpts);
-          Lampa.Player.play(playItem);
+      .then(function(ready) {
+        return resolveUserId().then(function(userId) {
+          return playItemFromRow(ready, userId, true, streamOpts).then(function(playItem) {
+            return playlistFromRows(rows, userId, streamOpts).then(function(playlist) {
+              playItem.playlist = playlist;
+              Lampa.Player.play(playItem);
+            });
+          });
         });
       })
-      .catch(function () {
+      .catch(function() {
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
