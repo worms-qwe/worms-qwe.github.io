@@ -864,7 +864,9 @@
           // Если IsDefault === true, добавляем selected: true
           if (stream.IsDefault === true) {
             sub.selected = true;
-          }
+          } else {
+			sub.selected = false;
+		  }
           subtitles.push(sub);
         }
       });
