@@ -559,8 +559,8 @@
 	    ],
 	    "SubtitleProfiles": [
 	      {"Format":"vtt","Method":"External"},
-	      {"Format":"subrip","Method":"External"},
-	      {"Format":"srt","Method":"External"},
+	      //{"Format":"subrip","Method":"External"},
+	      //{"Format":"srt","Method":"External"},
 	      {"Format":"ass","Method":"External"},
 	      {"Format":"ssa","Method":"External"}
 	    ],
