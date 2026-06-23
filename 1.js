@@ -858,20 +858,15 @@
         playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
       }
   
-      // Извлекаем субтитры и добавляем selected для default
+      // Извлекаем субтитры
       var subtitles = [];
       var streams = source.MediaStreams || [];
       streams.forEach(function(stream) {
         if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-          var sub = {
+          subtitles.push({
             url: apiBase() + stream.DeliveryUrl,
             label: stream.DisplayTitle || stream.Language || 'Subtitle'
-          };
-          // Если IsDefault === true, добавляем selected: true
-          if (stream.IsDefault === true) {
-            sub.selected = true;
-          }
-          subtitles.push(sub);
+          });
         }
       });
   
