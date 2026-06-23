@@ -325,19 +325,14 @@
     var postData = method === 'POST' && opts.jsonBody === undefined ? opts.data : undefined;
     var net = network();
     var useJsonAjax = opts.jsonBody !== undefined || method === 'DELETE';
-    var useCache = method === 'GET' && !useJsonAjax && opts.cache !== false;
-    var cached = useCache ? readApiCache(url) : null;
-    if (cached !== null) return Promise.resolve(cached);
-    if (useCache && apiInflight[apiCacheKey(url)]) return apiInflight[apiCacheKey(url)];
 
-    var request = new Promise(function (resolve, reject) {
+    return new Promise(function (resolve, reject) {
       function ok(raw) {
         if (dataType === 'json' && typeof raw === 'string' && raw.length) {
           try {
             raw = JSON.parse(raw);
           } catch (ignore) { }
         }
-        if (useCache) writeApiCache(url, raw);
         resolve(raw);
       }
       function fail(err) {
@@ -356,6 +351,9 @@
           dataType: dataType === 'text' ? 'text' : 'json',
           contentType: opts.jsonBody !== undefined ? 'application/json' : undefined,
           data: opts.jsonBody !== undefined ? JSON.stringify(opts.jsonBody) : undefined,
+          headers: {
+            'X-Emby-Token': key
+          }
         })
           .done(ok)
           .fail(fail);
@@ -370,16 +368,6 @@
       net.timeout(timeout);
       net.silent(url, ok, fail, postData, { timeout: timeout, dataType: dataType });
     });
-
-    if (useCache) {
-      var inflightKey = apiCacheKey(url);
-      apiInflight[inflightKey] = request.finally(function () {
-        delete apiInflight[inflightKey];
-      });
-      return apiInflight[inflightKey];
-    }
-
-    return request;
   }
 
   function tmdbJson(url) {
@@ -792,7 +780,7 @@
       }
     };
   
-    var url = apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
