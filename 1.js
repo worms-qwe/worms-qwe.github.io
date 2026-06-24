@@ -310,8 +310,6 @@
 
   function jfHttp(path, opts) {
     opts = opts || {};
-	console.error('Jellyfin path', path);
-	console.error('Jellyfin opts', opts);
     var base = apiBase();
     var key = apiKey();
     if (!base || !key) return Promise.reject(new Error('Jellyfin URL or API key is empty'));
@@ -743,8 +741,9 @@
     var userId = opts.userId || '';
     var startTicks = opts.startTicks || 0;
     var deviceId = getDeviceId();
+    var audioStreamIndex = opts.audioStreamIndex || null;
   
-    // ---- Всегда запрашиваем PlaybackInfo, чтобы получить субтитры ----
+    // ---- Всегда запрашиваем PlaybackInfo, чтобы получить субтитры и дорожки ----
     var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
     var quality = streamQualityPreset(qualityPresetKey);
   
@@ -810,6 +809,11 @@
       }
     };
   
+    // Если передан audioStreamIndex, добавляем его в запрос
+    if (audioStreamIndex !== null && audioStreamIndex !== undefined) {
+      postBody.AudioStreamIndex = audioStreamIndex;
+    }
+  
     // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
     postBody.DeviceProfile.CodecProfiles.forEach(function(profile) {
       if (profile.Conditions) {
@@ -826,15 +830,12 @@
       }
     });
   
-    console.error('Jellyfin PlaybackInfo request', { url: apiBase() + '/Items/' + encodeURIComponent(id) + '/PlaybackInfo', body: postBody });
-  
     var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
       dataType: 'json'
     }).then(function(response) {
-      console.error('Jellyfin PlaybackInfo response', response);
       var sources = response.MediaSources || [];
       if (sources.length === 0) throw new Error('No media sources');
       var source = sources[0];
@@ -846,7 +847,6 @@
         if (!transcodingUrl) throw new Error('No TranscodingUrl');
         playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
       } else {
-        // Прямой стрим (без транскодирования)
         var parts = [
           'DeviceId=' + encodeURIComponent(deviceId),
           'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
@@ -855,6 +855,9 @@
         ];
         if (userId) parts.push('UserId=' + encodeURIComponent(userId));
         if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
+        if (audioStreamIndex !== null && audioStreamIndex !== undefined) {
+          parts.push('AudioStreamIndex=' + encodeURIComponent(String(audioStreamIndex)));
+        }
         playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
       }
   
@@ -870,10 +873,90 @@
         }
       });
   
-      console.error('Jellyfin final stream URL', playUrl);
-      console.error('Jellyfin subtitles', subtitles);
+      // Извлекаем аудиодорожки
+      var audioTracks = [];
+      var defaultAudioIndex = null;
+      var hasDefault = false;
   
-      return { url: playUrl, subtitles: subtitles };
+      streams.forEach(function(stream) {
+        if (stream.Type === 'Audio') {
+          var track = {
+            index: stream.Index,
+            language: stream.Language || '',
+            label: stream.DisplayTitle || stream.Title || 'Audio'
+          };
+          // Проверяем IsDefault
+          if (stream.IsDefault === true) {
+            track.selected = true;
+            defaultAudioIndex = stream.Index;
+            hasDefault = true;
+          } else {
+            track.selected = false;
+          }
+          audioTracks.push(track);
+        }
+      });
+  
+      // Если не было default, выбираем первую дорожку
+      if (!hasDefault && audioTracks.length > 0) {
+        audioTracks[0].selected = true;
+        defaultAudioIndex = audioTracks[0].index;
+      }
+  
+      // Если передан audioStreamIndex, используем его для выбора
+      if (audioStreamIndex !== null && audioStreamIndex !== undefined) {
+        audioTracks.forEach(function(track) {
+          track.selected = (track.index === audioStreamIndex);
+        });
+        defaultAudioIndex = audioStreamIndex;
+      }
+  
+      // Добавляем onSelect для каждой дорожки (замыкание)
+      audioTracks.forEach(function(track) {
+        track.onSelect = function(a) {
+          var currentWork = Lampa.Player.playdata();
+          if (!currentWork) {
+            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+            return;
+          }
+          var newAudioIndex = a.index;
+          var currentTime = currentWork.timeline ? currentWork.timeline.time : 0;
+          var streamOpts = {
+            userId: userId,
+            startTicks: Math.floor(currentTime * 10000000),
+            mediaSourceId: opts.mediaSourceId || id,
+            qualityPreset: qualityPresetKey,
+            audioStreamIndex: newAudioIndex
+          };
+          // Вызываем streamUrl для получения нового URL
+          streamUrl(id, streamOpts).then(function(result) {
+            // Создаём новый playItem, копируя текущий work
+            var newPlayItem = {
+              url: result.url,
+              title: currentWork.title,
+              timeline: {
+                time: currentTime,
+                percent: currentWork.timeline ? currentWork.timeline.percent : 0,
+                duration: currentWork.timeline ? currentWork.timeline.duration : 0
+              },
+              quality: currentWork.quality,
+              subtitles: currentWork.subtitles,
+              playlist: currentWork.playlist,
+              movie: currentWork.movie,
+              voiceovers: currentWork.voiceovers, // сохраняем voiceovers
+              _jellyfinItemId: id,
+              _jellyfinUserId: userId,
+              _jellyfinMediaSourceId: opts.mediaSourceId || id,
+              _jellyfinQualityPreset: qualityPresetKey
+            };
+            Lampa.Player.play(newPlayItem);
+          }).catch(function() {
+            Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+          });
+        };
+      });
+  
+      return { url: playUrl, subtitles: subtitles, tracks: audioTracks };
     });
   }
   
@@ -922,6 +1005,16 @@
       if (result.subtitles && result.subtitles.length) {
         item.subtitles = result.subtitles;
       }
+      // Добавляем аудиодорожки (voiceovers), если есть
+      if (result.tracks && result.tracks.length) {
+        item.voiceovers = result.tracks;
+      }
+  
+      // Сохраняем служебные данные для переключения дорожек
+      item._jellyfinItemId = playTarget.id;
+      item._jellyfinUserId = userId;
+      item._jellyfinMediaSourceId = streamOpts.mediaSourceId;
+      item._jellyfinQualityPreset = streamOpts.qualityPreset;
   
       // Если транскодирование включено и не singleStream – строим карту качеств
       if (transcodingEnabled() && !opts.singleStream) {
