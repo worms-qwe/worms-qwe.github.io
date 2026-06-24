@@ -1022,6 +1022,7 @@
                         duration: work.timeline ? work.timeline.duration : 0
                       }
                     });
+                    Lampa.Player.close();
                     Lampa.Player.play(newData);
                   }
                 }
