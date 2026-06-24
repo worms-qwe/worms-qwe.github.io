@@ -846,8 +846,10 @@
               ],
               SubtitleProfiles: [
                   { Format: 'srt', Method: 'External' },
-                  { Format: 'ass', Method: 'Embed' },
-                  { Format: 'ssa', Method: 'Embed' },
+                  //{ Format: 'ass', Method: 'Embed' },
+                  //{ Format: 'ssa', Method: 'Embed' },
+                  { Format: 'ass', Method: 'Encode' },
+                  { Format: 'ssa', Method: 'Encode' },
                   //{ Format: 'vtt', Method: 'External' },
 	      		  //"Method":"Embed"
 		  		  //"Method":"External
