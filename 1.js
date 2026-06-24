@@ -781,175 +781,197 @@
   }
 
   // Функция streamUrl с добавлением MediaSourceId в тело запроса
-  function streamUrl(itemId, opts) {
-    opts = opts || {};
-    var id = String(itemId || '');
-    if (!id) return Promise.reject(new Error('No item id'));
-
-    var userId = opts.userId || '';
-    var startTicks = opts.startTicks || 0;
-    var deviceId = getDeviceId();
-
-    var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
-    var quality = streamQualityPreset(qualityPresetKey);
-
-    var postBody = {
-      UserId: userId,
-      DeviceId: deviceId,
-      StartTimeTicks: startTicks,
-      IsPlayback: true,
-      AutoOpenLiveStream: true,
-      MaxStreamingBitrate: quality.maxStreamingBitrate,
-      VideoBitrate: quality.videoBitrate,
-      AudioBitrate: quality.audioBitrate,
-      AlwaysBurnInSubtitleWhenTranscoding: false,
-      DeviceProfile: {
-        MaxStreamingBitrate: quality.maxStreamingBitrate,
-        MaxStaticBitrate: quality.maxStreamingBitrate,
-        MusicStreamingTranscodingBitrate: 384000,
-        DirectPlayProfiles: [
-          { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
-          { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
-          { Container: 'mov', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' },
-          { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
-          { Container: 'mp3', Type: 'Audio' },
-          { Container: 'aac', Type: 'Audio' },
-          { Container: 'wav', Type: 'Audio' },
-          { Container: 'ogg', Type: 'Audio' },
-          { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac,mp2' },
-          { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' }
-        ],
-        TranscodingProfiles: [
-          { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
-          { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
-          { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
-        ],
-        ContainerProfiles: [],
-        CodecProfiles: [
-          { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
-          { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
-          { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
-          { Type: 'Video', Codec: 'h264', Conditions: [
-            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
-            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
-            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
-            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false },
-            { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
-          ] },
-          { Type: 'Video', Codec: 'av1', Conditions: [
-            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
-            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false },
-            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
-            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }
-          ] },
-          { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
-        ],
-        SubtitleProfiles: [
-          { Format: 'ass', Method: 'External' },
-          { Format: 'ssa', Method: 'External' },
-          { Format: 'srt', Method: 'External' }
-        ],
-        ResponseProfiles: [
-          { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
-        ]
-      }
-    };
-
-    // Добавляем AudioStreamIndex, если передан
-    if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
-      postBody.AudioStreamIndex = opts.audioStreamIndex;
-      remoteLog('streamUrl: запрос с audioStreamIndex =', opts.audioStreamIndex);
-    } else {
-      remoteLog('streamUrl: запрос без audioStreamIndex');
-    }
-
-    // Передаём MediaSourceId в теле запроса
-    if (opts.mediaSourceId) {
-      postBody.MediaSourceId = opts.mediaSourceId;
-      remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
-    }
-
-    // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
-    postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
-      if (profile.Conditions) {
-        profile.Conditions.forEach(function (cond) {
-          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
-        });
-      }
-    });
-    postBody.DeviceProfile.TranscodingProfiles.forEach(function (profile) {
-      if (profile.Conditions) {
-        profile.Conditions.forEach(function (cond) {
-          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
-        });
-      }
-    });
-
-    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
-    remoteLog('streamUrl: запрос к', url, 'с телом', postBody);
-    return jfHttp(url, {
-      method: 'POST',
-      jsonBody: postBody,
-      dataType: 'json'
-    }).then(function (response) {
-      var sources = response.MediaSources || [];
-      if (sources.length === 0) throw new Error('No media sources');
-      var source = sources[0];
-
-      // Формируем URL для воспроизведения
-      var playUrl;
-      if (transcodingEnabled()) {
-        var transcodingUrl = source.TranscodingUrl;
-        if (!transcodingUrl) throw new Error('No TranscodingUrl');
-        playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+  function streamUrlInternal(itemId, opts, isFirstTry) {
+      opts = opts || {};
+      var id = String(itemId || '');
+      if (!id) return Promise.reject(new Error('No item id'));
+  
+      var userId = opts.userId || '';
+      var startTicks = opts.startTicks || 0;
+      var deviceId = getDeviceId();
+  
+      var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
+      var quality = streamQualityPreset(qualityPresetKey);
+  
+      var postBody = {
+          UserId: userId,
+          DeviceId: deviceId,
+          StartTimeTicks: startTicks,
+          IsPlayback: true,
+          AutoOpenLiveStream: true,
+          MaxStreamingBitrate: quality.maxStreamingBitrate,
+          VideoBitrate: quality.videoBitrate,
+          AudioBitrate: quality.audioBitrate,
+          AlwaysBurnInSubtitleWhenTranscoding: false,
+          DeviceProfile: {
+              MaxStreamingBitrate: quality.maxStreamingBitrate,
+              MaxStaticBitrate: quality.maxStreamingBitrate,
+              MusicStreamingTranscodingBitrate: 384000,
+              DirectPlayProfiles: [
+                  { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+                  { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+                  { Container: 'mov', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' },
+                  { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
+                  { Container: 'mp3', Type: 'Audio' },
+                  { Container: 'aac', Type: 'Audio' },
+                  { Container: 'wav', Type: 'Audio' },
+                  { Container: 'ogg', Type: 'Audio' },
+                  { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac,mp2' },
+                  { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' }
+              ],
+              TranscodingProfiles: [
+                  { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
+                  { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
+                  { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
+              ],
+              ContainerProfiles: [],
+              CodecProfiles: [
+                  { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+                  { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
+                  { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+                  { Type: 'Video', Codec: 'h264', Conditions: [
+                      { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+                      { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
+                      { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+                      { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false },
+                      { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
+                  ] },
+                  { Type: 'Video', Codec: 'av1', Conditions: [
+                      { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+                      { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false },
+                      { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+                      { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }
+                  ] },
+                  { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
+              ],
+              SubtitleProfiles: [
+                  { Format: 'ass', Method: 'External' },
+                  { Format: 'ssa', Method: 'External' },
+                  { Format: 'srt', Method: 'External' }
+              ],
+              ResponseProfiles: [
+                  { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
+              ]
+          }
+      };
+  
+      // Добавляем AudioStreamIndex, если передан
+      if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
+          postBody.AudioStreamIndex = opts.audioStreamIndex;
+          remoteLog('streamUrl: запрос с audioStreamIndex =', opts.audioStreamIndex);
       } else {
-        var parts = [
-          'DeviceId=' + encodeURIComponent(deviceId),
-          'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
-          'api_key=' + encodeURIComponent(apiKey()),
-          'Static=true'
-        ];
-        if (userId) parts.push('UserId=' + encodeURIComponent(userId));
-        if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
-        playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+          remoteLog('streamUrl: запрос без audioStreamIndex');
       }
-
-      // Извлекаем субтитры
-      var subtitles = [];
-      var streams = source.MediaStreams || [];
-      streams.forEach(function (stream) {
-        if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-          subtitles.push({
-            url: apiBase() + stream.DeliveryUrl,
-            label: stream.DisplayTitle || stream.Language || 'Subtitle'
+  
+      // Передаём MediaSourceId в теле запроса
+      if (opts.mediaSourceId) {
+          postBody.MediaSourceId = opts.mediaSourceId;
+          remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
+      }
+  
+      // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
+      postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
+          if (profile.Conditions) {
+              profile.Conditions.forEach(function (cond) {
+                  if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+              });
+          }
+      });
+      postBody.DeviceProfile.TranscodingProfiles.forEach(function (profile) {
+          if (profile.Conditions) {
+              profile.Conditions.forEach(function (cond) {
+                  if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+              });
+          }
+      });
+  
+      var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+      remoteLog('streamUrl: запрос к', url, 'с телом', postBody);
+      return jfHttp(url, {
+          method: 'POST',
+          jsonBody: postBody,
+          dataType: 'json'
+      }).then(function (response) {
+          var sources = response.MediaSources || [];
+          if (sources.length === 0) throw new Error('No media sources');
+          var source = sources[0];
+  
+          // Формируем URL для воспроизведения
+          var playUrl;
+          if (transcodingEnabled()) {
+              var transcodingUrl = source.TranscodingUrl;
+              if (!transcodingUrl) throw new Error('No TranscodingUrl');
+              playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+          } else {
+              var parts = [
+                  'DeviceId=' + encodeURIComponent(deviceId),
+                  'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
+                  'api_key=' + encodeURIComponent(apiKey()),
+                  'Static=true'
+              ];
+              if (userId) parts.push('UserId=' + encodeURIComponent(userId));
+              if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
+              playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+          }
+  
+          // Извлекаем субтитры
+          var subtitles = [];
+          var streams = source.MediaStreams || [];
+          streams.forEach(function (stream) {
+              if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+                  subtitles.push({
+                      url: apiBase() + stream.DeliveryUrl,
+                      label: stream.DisplayTitle || stream.Language || 'Subtitle'
+                  });
+              }
           });
-        }
+  
+          // Извлекаем аудиопотоки
+          var audioStreams = [];
+          var selectedAudioIndex = null;
+          streams.forEach(function (stream) {
+              if (stream.Type === 'Audio') {
+                  var item = {
+                      index: stream.Index,
+                      language: stream.Language || '',
+                      displayTitle: stream.DisplayTitle || '',
+                      channels: stream.Channels || 0,
+                      codec: stream.Codec || ''
+                  };
+                  audioStreams.push(item);
+                  if (stream.IsDefault) selectedAudioIndex = stream.Index;
+              }
+          });
+          if (selectedAudioIndex === null && audioStreams.length > 0) {
+              selectedAudioIndex = audioStreams[0].index;
+          }
+          remoteLog('streamUrl: получены аудиопотоки', audioStreams, 'выбранный', selectedAudioIndex);
+  
+          return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
       });
-
-      // ---- ИЗВЛЕКАЕМ АУДИОПОТОКИ ----
-      var audioStreams = [];
-      var selectedAudioIndex = null;
-      streams.forEach(function (stream) {
-        if (stream.Type === 'Audio') {
-          var item = {
-            index: stream.Index,
-            language: stream.Language || '',
-            displayTitle: stream.DisplayTitle || '',
-            channels: stream.Channels || 0,
-            codec: stream.Codec || ''
-          };
-          audioStreams.push(item);
-          if (stream.IsDefault) selectedAudioIndex = stream.Index;
-        }
-      });
-      if (selectedAudioIndex === null && audioStreams.length > 0) {
-        selectedAudioIndex = audioStreams[0].index;
+  }
+  
+  // Основная функция streamUrl с автоматическим выбором дефолтной дорожки
+  function streamUrl(itemId, opts) {
+      opts = opts || {};
+      // Если audioStreamIndex не передан, делаем два запроса
+      if (opts.audioStreamIndex === undefined || opts.audioStreamIndex === null) {
+          remoteLog('streamUrl: первый запрос (без индекса) для получения дефолтной дорожки');
+          return streamUrlInternal(itemId, opts, true).then(function (firstResult) {
+              var defaultIndex = firstResult.selectedAudioIndex;
+              if (defaultIndex !== null && defaultIndex !== undefined) {
+                  remoteLog('streamUrl: определён дефолтный индекс', defaultIndex, ', делаем второй запрос');
+                  var newOpts = Object.assign({}, opts, { audioStreamIndex: defaultIndex });
+                  return streamUrlInternal(itemId, newOpts, false);
+              } else {
+                  remoteLog('streamUrl: дефолтный индекс не найден, используем первый результат');
+                  return firstResult;
+              }
+          });
+      } else {
+          // Индекс передан, делаем один запрос
+          return streamUrlInternal(itemId, opts, false);
       }
-      remoteLog('streamUrl: получены аудиопотоки', audioStreams, 'выбранный', selectedAudioIndex);
-      // ---------------------------------
-
-      return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
-    });
   }
 
   // Функция playItemFromRow (создаёт объект качества с call-функциями, без playlist и movie)
