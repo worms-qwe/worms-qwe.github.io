@@ -18,7 +18,6 @@
       return String(arg);
     }).join(' ');
 
-    // Попытка отправить на удалённый сервер, если указан URL в настройках
     var logUrl = storageStr('LogUrl', '');
     if (logUrl) {
       try {
@@ -963,7 +962,7 @@
     });
   }
 
-  // ИЗМЕНЁННАЯ ФУНКЦИЯ playItemFromRow с логированием
+  // ИСПРАВЛЕННАЯ ФУНКЦИЯ playItemFromRow (без arguments.callee)
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
     var variant;
@@ -1022,32 +1021,23 @@
           });
         };
 
-        // Строим массив для voiceovers
-        voiceovers = audioStreams.map(function (stream) {
+        // Вспомогательная функция для создания элемента голоса
+        function createVoiceover(stream, selectedIdx) {
           var title = stream.language || Lampa.Lang.translate('player_unknown');
           if (stream.displayTitle) title += ' / ' + stream.displayTitle;
           if (stream.channels) title += ' (' + stream.channels + ' Ch)';
-
           return {
             title: title,
             index: stream.index,
-            selected: stream.index === selectedIndex,
-            onSelect: function () {
+            selected: stream.index === selectedIdx,
+            onSelect: function() {
               remoteLog('onSelect: выбрана дорожка с индексом', stream.index);
               var chosenIndex = stream.index;
               switchAudio(chosenIndex).then(function (newUrl) {
                 remoteLog('onSelect: успешно получен новый URL', newUrl);
                 // Обновляем список voiceovers с новым выбранным индексом
                 var updatedVoiceovers = audioStreams.map(function (s) {
-                  var t = s.language || Lampa.Lang.translate('player_unknown');
-                  if (s.displayTitle) t += ' / ' + s.displayTitle;
-                  if (s.channels) t += ' (' + s.channels + ' Ch)';
-                  return {
-                    title: t,
-                    index: s.index,
-                    selected: s.index === chosenIndex,
-                    onSelect: arguments.callee
-                  };
+                  return createVoiceover(s, chosenIndex);
                 });
                 // Обновляем список в панели, если есть доступ
                 var panel = Lampa.Player && Lampa.Player.panel;
@@ -1087,6 +1077,10 @@
               });
             }
           };
+        }
+
+        voiceovers = audioStreams.map(function (stream) {
+          return createVoiceover(stream, selectedIndex);
         });
       }
       item.voiceovers = voiceovers;
