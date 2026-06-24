@@ -69,17 +69,20 @@
   var apiCacheEpoch = 0;
   var libraryIndexInflight = null;
   var hubDataInflight = null;
+
+  // --- НОВАЯ ФУНКЦИЯ ДЛЯ ДОСТУПА К ПАНЕЛИ ПЛЕЕРА ---
   var panelListener = null;
 
   function getPanelListener() {
-      if (panelListener !== null) return panelListener;
-      if (Lampa.Player && Lampa.Player.panel && Lampa.Player.panel.listener) {
-          panelListener = Lampa.Player.panel.listener;
-      } else {
-          panelListener = false;
-      }
-      return panelListener;
+    if (panelListener !== null) return panelListener;
+    if (Lampa.Player && Lampa.Player.panel && Lampa.Player.panel.listener) {
+      panelListener = Lampa.Player.panel.listener;
+    } else {
+      panelListener = false;
+    }
+    return panelListener;
   }
+  // ------------------------------------------------
 
   function addLang() {
     Lampa.Lang.add({
@@ -744,304 +747,309 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
+  // ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl
   function streamUrl(itemId, opts) {
-      opts = opts || {};
-      var id = String(itemId || '');
-      if (!id) return Promise.reject(new Error('No item id'));
-  
-      var userId = opts.userId || '';
-      var startTicks = opts.startTicks || 0;
-      var deviceId = getDeviceId();
-  
-      var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
-      var quality = streamQualityPreset(qualityPresetKey);
-  
-      var postBody = {
-          UserId: userId,
-          DeviceId: deviceId,
-          StartTimeTicks: startTicks,
-          IsPlayback: true,
-          AutoOpenLiveStream: true,
-          MaxStreamingBitrate: quality.maxStreamingBitrate,
-          VideoBitrate: quality.videoBitrate,
-          AudioBitrate: quality.audioBitrate,
-          AlwaysBurnInSubtitleWhenTranscoding: false,
-          DeviceProfile: {
-              MaxStreamingBitrate: quality.maxStreamingBitrate,
-              MaxStaticBitrate: quality.maxStreamingBitrate,
-              MusicStreamingTranscodingBitrate: 384000,
-              DirectPlayProfiles: [
-                  { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
-                  { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
-                  { Container: 'mov', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' },
-                  { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
-                  { Container: 'mp3', Type: 'Audio' },
-                  { Container: 'aac', Type: 'Audio' },
-                  { Container: 'wav', Type: 'Audio' },
-                  { Container: 'ogg', Type: 'Audio' },
-                  { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac,mp2' },
-                  { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' }
-              ],
-              TranscodingProfiles: [
-                  { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
-                  { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
-                  { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
-              ],
-              ContainerProfiles: [],
-              CodecProfiles: [
-                  { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
-                  { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
-                  { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
-                  { Type: 'Video', Codec: 'h264', Conditions: [
-                      { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
-                      { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
-                      { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
-                      { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false },
-                      { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
-                  ] },
-                  { Type: 'Video', Codec: 'av1', Conditions: [
-                      { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
-                      { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false },
-                      { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
-                      { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }
-                  ] },
-                  { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
-              ],
-              SubtitleProfiles: [
-                  { Format: 'ass', Method: 'External' },
-                  { Format: 'ssa', Method: 'External' },
-                  { Format: 'srt', Method: 'External' }
-              ],
-              ResponseProfiles: [
-                  { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
-              ]
-          }
-      };
-  
-      // Добавляем AudioStreamIndex, если передан
-      if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
-          postBody.AudioStreamIndex = opts.audioStreamIndex;
+    opts = opts || {};
+    var id = String(itemId || '');
+    if (!id) return Promise.reject(new Error('No item id'));
+
+    var userId = opts.userId || '';
+    var startTicks = opts.startTicks || 0;
+    var deviceId = getDeviceId();
+
+    var qualityPresetKey = opts.qualityPreset || defaultTranscodePresetKey();
+    var quality = streamQualityPreset(qualityPresetKey);
+
+    var postBody = {
+      UserId: userId,
+      DeviceId: deviceId,
+      StartTimeTicks: startTicks,
+      IsPlayback: true,
+      AutoOpenLiveStream: true,
+      MaxStreamingBitrate: quality.maxStreamingBitrate,
+      VideoBitrate: quality.videoBitrate,
+      AudioBitrate: quality.audioBitrate,
+      AlwaysBurnInSubtitleWhenTranscoding: false,
+      DeviceProfile: {
+        MaxStreamingBitrate: quality.maxStreamingBitrate,
+        MaxStaticBitrate: quality.maxStreamingBitrate,
+        MusicStreamingTranscodingBitrate: 384000,
+        DirectPlayProfiles: [
+          { Container: 'mp4,m4v', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'mkv', Type: 'Video', VideoCodec: 'h264,av1', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'mov', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' },
+          { Container: 'ts', AudioCodec: 'mp3', Type: 'Audio' },
+          { Container: 'mp3', Type: 'Audio' },
+          { Container: 'aac', Type: 'Audio' },
+          { Container: 'wav', Type: 'Audio' },
+          { Container: 'ogg', Type: 'Audio' },
+          { Container: 'hls', Type: 'Video', VideoCodec: 'av1,h264', AudioCodec: 'aac,mp2' },
+          { Container: 'hls', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac,mp3,mp2' }
+        ],
+        TranscodingProfiles: [
+          { Container: 'ts', Type: 'Audio', AudioCodec: 'aac', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: '6', MinSegments: '1', BreakOnNonKeyFrames: false, EnableAudioVbrEncoding: true },
+          { Container: 'aac', Type: 'Audio', AudioCodec: 'aac', Context: 'Static', Protocol: 'hls', MaxAudioChannels: 6 },
+          { Container: 'hls', Type: 'Video', AudioCodec: 'aac', VideoCodec: 'h264', Context: 'Streaming', Protocol: 'hls', MaxAudioChannels: 6, MinSegments: 1, BreakOnNonKeyFrames: false, Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
+        ],
+        ContainerProfiles: [],
+        CodecProfiles: [
+          { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+          { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
+          { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+          { Type: 'Video', Codec: 'h264', Conditions: [
+            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 52, IsRequired: false },
+            { Condition: 'NotEquals', Property: 'IsInterlaced', Value: 'true', IsRequired: false }
+          ] },
+          { Type: 'Video', Codec: 'av1', Conditions: [
+            { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'main', IsRequired: false },
+            { Condition: 'EqualsAny', Property: 'VideoRangeType', Value: 'SDR', IsRequired: false },
+            { Condition: 'LessThanEqual', Property: 'VideoLevel', Value: 19, IsRequired: false }
+          ] },
+          { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
+        ],
+        SubtitleProfiles: [
+          { Format: 'ass', Method: 'External' },
+          { Format: 'ssa', Method: 'External' },
+          { Format: 'srt', Method: 'External' }
+        ],
+        ResponseProfiles: [
+          { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
+        ]
       }
-  
-      // Обновляем условия с Width
-      postBody.DeviceProfile.CodecProfiles.forEach(function(profile) {
-          if (profile.Conditions) {
-              profile.Conditions.forEach(function(cond) {
-                  if (cond.Property === 'Width') cond.Value = quality.maxWidth;
-              });
-          }
-      });
-      postBody.DeviceProfile.TranscodingProfiles.forEach(function(profile) {
-          if (profile.Conditions) {
-              profile.Conditions.forEach(function(cond) {
-                  if (cond.Property === 'Width') cond.Value = quality.maxWidth;
-              });
-          }
-      });
-  
-      var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
-      return jfHttp(url, {
-          method: 'POST',
-          jsonBody: postBody,
-          dataType: 'json'
-      }).then(function(response) {
-          var sources = response.MediaSources || [];
-          if (sources.length === 0) throw new Error('No media sources');
-          var source = sources[0];
-  
-          var playUrl;
-          if (transcodingEnabled()) {
-              var transcodingUrl = source.TranscodingUrl;
-              if (!transcodingUrl) throw new Error('No TranscodingUrl');
-              playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
-          } else {
-              var parts = [
-                  'DeviceId=' + encodeURIComponent(deviceId),
-                  'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
-                  'api_key=' + encodeURIComponent(apiKey()),
-                  'Static=true'
-              ];
-              if (userId) parts.push('UserId=' + encodeURIComponent(userId));
-              if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
-              playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
-          }
-  
-          // Извлекаем субтитры
-          var subtitles = [];
-          var streams = source.MediaStreams || [];
-          streams.forEach(function(stream) {
-              if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-                  subtitles.push({
-                      url: apiBase() + stream.DeliveryUrl,
-                      label: stream.DisplayTitle || stream.Language || 'Subtitle'
-                  });
-              }
+    };
+
+    // Добавляем AudioStreamIndex, если передан
+    if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
+      postBody.AudioStreamIndex = opts.audioStreamIndex;
+    }
+
+    // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
+    postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
+      if (profile.Conditions) {
+        profile.Conditions.forEach(function (cond) {
+          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+        });
+      }
+    });
+    postBody.DeviceProfile.TranscodingProfiles.forEach(function (profile) {
+      if (profile.Conditions) {
+        profile.Conditions.forEach(function (cond) {
+          if (cond.Property === 'Width') cond.Value = quality.maxWidth;
+        });
+      }
+    });
+
+    var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+    return jfHttp(url, {
+      method: 'POST',
+      jsonBody: postBody,
+      dataType: 'json'
+    }).then(function (response) {
+      var sources = response.MediaSources || [];
+      if (sources.length === 0) throw new Error('No media sources');
+      var source = sources[0];
+
+      // Формируем URL для воспроизведения
+      var playUrl;
+      if (transcodingEnabled()) {
+        var transcodingUrl = source.TranscodingUrl;
+        if (!transcodingUrl) throw new Error('No TranscodingUrl');
+        playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
+      } else {
+        // Прямой стрим (без транскодирования)
+        var parts = [
+          'DeviceId=' + encodeURIComponent(deviceId),
+          'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
+          'api_key=' + encodeURIComponent(apiKey()),
+          'Static=true'
+        ];
+        if (userId) parts.push('UserId=' + encodeURIComponent(userId));
+        if (startTicks > 0) parts.push('StartTimeTicks=' + encodeURIComponent(String(startTicks)));
+        playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
+      }
+
+      // Извлекаем субтитры
+      var subtitles = [];
+      var streams = source.MediaStreams || [];
+      streams.forEach(function (stream) {
+        if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+          subtitles.push({
+            url: apiBase() + stream.DeliveryUrl,
+            label: stream.DisplayTitle || stream.Language || 'Subtitle'
           });
-  
-          // Извлекаем аудиодорожки
-          var audioStreams = [];
-          var selectedAudioIndex = null;
-          streams.forEach(function(stream) {
-              if (stream.Type === 'Audio') {
-                  var item = {
-                      index: stream.Index,
-                      language: stream.Language || '',
-                      displayTitle: stream.DisplayTitle || '',
-                      channels: stream.Channels || 0,
-                      codec: stream.Codec || ''
-                  };
-                  audioStreams.push(item);
-                  if (stream.IsDefault) selectedAudioIndex = stream.Index;
-              }
-          });
-          if (selectedAudioIndex === null && audioStreams.length > 0) {
-              selectedAudioIndex = audioStreams[0].index;
-          }
-  
-          return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
+        }
       });
+
+      // ---- ИЗВЛЕКАЕМ АУДИОПОТОКИ ----
+      var audioStreams = [];
+      var selectedAudioIndex = null;
+      streams.forEach(function (stream) {
+        if (stream.Type === 'Audio') {
+          var item = {
+            index: stream.Index,
+            language: stream.Language || '',
+            displayTitle: stream.DisplayTitle || '',
+            channels: stream.Channels || 0,
+            codec: stream.Codec || ''
+          };
+          audioStreams.push(item);
+          if (stream.IsDefault) selectedAudioIndex = stream.Index;
+        }
+      });
+      if (selectedAudioIndex === null && audioStreams.length > 0) {
+        selectedAudioIndex = audioStreams[0].index;
+      }
+      // ---------------------------------
+
+      return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
+    });
   }
-  
+
   function buildStreamQualityMap(itemId, opts) {
     if (!transcodingEnabled()) return Promise.resolve(null);
     var map = {};
     var baseOpts = Object.assign({}, opts);
-    var promises = PLAYER_TRANSCODE_QUALITIES.map(function(entry) {
+    var promises = PLAYER_TRANSCODE_QUALITIES.map(function (entry) {
       var localOpts = Object.assign({}, baseOpts, { qualityPreset: entry.preset });
-      return streamUrl(itemId, localOpts).then(function(result) {
+      return streamUrl(itemId, localOpts).then(function (result) {
         map[entry.key] = result.url;
       });
     });
-    return Promise.all(promises).then(function() {
+    return Promise.all(promises).then(function () {
       return map;
     });
   }
 
+  // ИЗМЕНЁННАЯ ФУНКЦИЯ playItemFromRow
   function playItemFromRow(row, userId, includeMovie, opts) {
-      opts = opts || {};
-      var variant;
-      if (opts.qualityTarget && !usesLampaNativePlayer()) {
-          variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
-      } else {
-          variant = resolvePlayVariant(row);
-      }
-      var playTarget = rowWithVariant(row, variant);
-      var streamOpts = {
-          userId: userId,
-          startTicks: rowStartTicks(playTarget),
-          mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
-          qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
-          audioStreamIndex: opts.audioStreamIndex // передаём индекс
+    opts = opts || {};
+    var variant;
+    if (opts.qualityTarget && !usesLampaNativePlayer()) {
+      variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
+    } else {
+      variant = resolvePlayVariant(row);
+    }
+    var playTarget = rowWithVariant(row, variant);
+    var streamOpts = {
+      userId: userId,
+      startTicks: rowStartTicks(playTarget),
+      mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
+      qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
+      audioStreamIndex: opts.audioStreamIndex // передаём индекс
+    };
+
+    return streamUrl(playTarget.id, streamOpts).then(function (result) {
+      var item = {
+        title: row.title,
+        url: result.url,
       };
-  
-      return streamUrl(playTarget.id, streamOpts).then(function(result) {
-          var item = {
-              title: row.title,
-              url: result.url,
+      if (playTarget.resumeSec > 0) {
+        item.timeline = includeMovie
+          ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
+          : { time: playTarget.resumeSec };
+      }
+      if (result.subtitles && result.subtitles.length) {
+        item.subtitles = result.subtitles;
+      }
+
+      // ---- СОЗДАЁМ СПИСОК АУДИОДОРОЖЕК ДЛЯ ПАНЕЛИ ----
+      var voiceovers = [];
+      var audioStreams = result.audioStreams || [];
+      var selectedIndex = result.selectedAudioIndex;
+
+      if (audioStreams.length > 0) {
+        // Функция для переключения дорожки и получения нового URL
+        var switchAudio = function (audioIndex) {
+          var switchOpts = {
+            userId: userId,
+            startTicks: streamOpts.startTicks,
+            mediaSourceId: streamOpts.mediaSourceId,
+            qualityPreset: streamOpts.qualityPreset,
+            audioStreamIndex: audioIndex
           };
-          if (playTarget.resumeSec > 0) {
-              item.timeline = includeMovie
-                  ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
-                  : { time: playTarget.resumeSec };
-          }
-          if (result.subtitles && result.subtitles.length) {
-              item.subtitles = result.subtitles;
-          }
-  
-          // Создаём список аудиодорожек для панели
-          var voiceovers = [];
-          var audioStreams = result.audioStreams || [];
-          var selectedIndex = result.selectedAudioIndex;
-  
-          if (audioStreams.length > 0) {
-              var switchAudio = function(audioIndex) {
-                  var switchOpts = {
-                      userId: userId,
-                      startTicks: streamOpts.startTicks,
-                      mediaSourceId: streamOpts.mediaSourceId,
-                      qualityPreset: streamOpts.qualityPreset,
-                      audioStreamIndex: audioIndex
-                  };
-                  return streamUrl(playTarget.id, switchOpts).then(function(res) {
-                      return res.url;
-                  });
-              };
-  
-              voiceovers = audioStreams.map(function(stream) {
-                  var title = stream.language || Lampa.Lang.translate('player_unknown');
-                  if (stream.displayTitle) title += ' / ' + stream.displayTitle;
-                  if (stream.channels) title += ' (' + stream.channels + ' Ch)';
-  
+          return streamUrl(playTarget.id, switchOpts).then(function (res) {
+            return res.url;
+          });
+        };
+
+        // Строим массив для voiceovers
+        voiceovers = audioStreams.map(function (stream) {
+          var title = stream.language || Lampa.Lang.translate('player_unknown');
+          if (stream.displayTitle) title += ' / ' + stream.displayTitle;
+          if (stream.channels) title += ' (' + stream.channels + ' Ch)';
+
+          return {
+            title: title,
+            index: stream.index,
+            selected: stream.index === selectedIndex,
+            onSelect: function () {
+              var chosenIndex = stream.index;
+              switchAudio(chosenIndex).then(function (newUrl) {
+                // Обновляем список voiceovers с новым выбранным индексом
+                var updatedVoiceovers = audioStreams.map(function (s) {
+                  var t = s.language || Lampa.Lang.translate('player_unknown');
+                  if (s.displayTitle) t += ' / ' + s.displayTitle;
+                  if (s.channels) t += ' (' + s.channels + ' Ch)';
                   return {
-                      title: title,
-                      index: stream.index,
-                      selected: stream.index === selectedIndex,
-                      onSelect: function() {
-                          var chosenIndex = stream.index;
-                          switchAudio(chosenIndex).then(function(newUrl) {
-                              // Обновляем список voiceovers с новым выбранным индексом
-                              var updatedVoiceovers = audioStreams.map(function(s) {
-                                  var t = s.language || Lampa.Lang.translate('player_unknown');
-                                  if (s.displayTitle) t += ' / ' + s.displayTitle;
-                                  if (s.channels) t += ' (' + s.channels + ' Ch)';
-                                  return {
-                                      title: t,
-                                      index: s.index,
-                                      selected: s.index === chosenIndex,
-                                      onSelect: arguments.callee // простая передача функции, но лучше сохранить ссылку
-                                  };
-                              });
-                              // Обновляем список в панели, если есть доступ
-                              var panel = Lampa.Player && Lampa.Player.panel;
-                              if (panel && typeof panel.setTracks === 'function') {
-                                  panel.setTracks(updatedVoiceovers);
-                              }
-                              // Отправляем событие flow для перезагрузки видео
-                              var panelListener = getPanelListener();
-                              if (panelListener) {
-                                  panelListener.send('flow', { url: newUrl });
-                              } else {
-                                  // Fallback: перезапуск плеера
-                                  var work = Lampa.Player.playdata();
-                                  if (work) {
-                                      var newData = Object.assign({}, work, {
-                                          url: newUrl,
-                                          timeline: {
-                                              time: work.timeline ? work.timeline.time : 0,
-                                              percent: work.timeline ? work.timeline.percent : 0,
-                                              duration: work.timeline ? work.timeline.duration : 0
-                                          }
-                                      });
-                                      Lampa.Player.play(newData);
-                                  }
-                              }
-                          }).catch(function(err) {
-                              Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-                          });
-                      }
+                    title: t,
+                    index: s.index,
+                    selected: s.index === chosenIndex,
+                    onSelect: arguments.callee // простая передача функции, но лучше сохранить ссылку
                   };
+                });
+                // Обновляем список в панели, если есть доступ
+                var panel = Lampa.Player && Lampa.Player.panel;
+                if (panel && typeof panel.setTracks === 'function') {
+                  panel.setTracks(updatedVoiceovers);
+                }
+                // Отправляем событие flow для перезагрузки видео
+                var panelListener = getPanelListener();
+                if (panelListener) {
+                  panelListener.send('flow', { url: newUrl });
+                } else {
+                  // Fallback: перезапуск плеера
+                  var work = Lampa.Player.playdata();
+                  if (work) {
+                    var newData = Object.assign({}, work, {
+                      url: newUrl,
+                      timeline: {
+                        time: work.timeline ? work.timeline.time : 0,
+                        percent: work.timeline ? work.timeline.percent : 0,
+                        duration: work.timeline ? work.timeline.duration : 0
+                      }
+                    });
+                    Lampa.Player.play(newData);
+                  }
+                }
+              }).catch(function (err) {
+                Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
               });
-              // Сохраняем ссылку на функцию для обновления в onSelect (чтобы не создавать замыкание с arguments.callee)
-              // Можно переделать, но для простоты оставим как есть.
-          }
-  
-          item.voiceovers = voiceovers;
-  
-          if (transcodingEnabled() && !opts.singleStream) {
-              return buildStreamQualityMap(playTarget.id, streamOpts).then(function(qualityMap) {
-                  if (qualityMap) item.quality = qualityMap;
-                  if (includeMovie) item.movie = playTarget.raw;
-                  return item;
-              });
-          } else {
-              if (includeMovie) item.movie = playTarget.raw;
-              return item;
-          }
-      });
+            }
+          };
+        });
+      }
+      item.voiceovers = voiceovers;
+      // ------------------------------------------------
+
+      if (transcodingEnabled() && !opts.singleStream) {
+        return buildStreamQualityMap(playTarget.id, streamOpts).then(function (qualityMap) {
+          if (qualityMap) item.quality = qualityMap;
+          if (includeMovie) item.movie = playTarget.raw;
+          return item;
+        });
+      } else {
+        if (includeMovie) item.movie = playTarget.raw;
+        return item;
+      }
+    });
   }
- 
+
   function playlistFromRows(rows, userId, opts) {
-    return Promise.all(rows.map(function(row) {
+    return Promise.all(rows.map(function (row) {
       return playItemFromRow(row, userId, false, opts);
     }));
   }
@@ -2660,19 +2668,19 @@
     };
     var readyPromise =
       row && row.variantsResolved ? Promise.resolve(row) : ensurePlaybackVariants(row);
-  
+
     readyPromise
-      .then(function(ready) {
-        return resolveUserId().then(function(userId) {
-          return playItemFromRow(ready, userId, true, streamOpts).then(function(playItem) {
-            return playlistFromRows(rows, userId, streamOpts).then(function(playlist) {
+      .then(function (ready) {
+        return resolveUserId().then(function (userId) {
+          return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
+            return playlistFromRows(rows, userId, streamOpts).then(function (playlist) {
               playItem.playlist = playlist;
               Lampa.Player.play(playItem);
             });
           });
         });
       })
-      .catch(function() {
+      .catch(function () {
         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
       });
   }
