@@ -2744,7 +2744,7 @@
         return resolveUserId().then(function (userId) {
           return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
             return playlistFromRows(rows, userId, streamOpts).then(function (playlist) {
-              playItem.playlist = playlist;
+              //playItem.playlist = playlist;
               Lampa.Player.play(playItem);
             });
           });
