@@ -994,14 +994,15 @@
 	  
 	  remoteLog('playItemFromRow: audioStreams', audioStreams, 'selectedIndex', selectedIndex);
 	  
-	  // Функция для создания одного элемента voiceover
+	  // Функция для создания одного элемента voiceover в формате, понятном панели плеера
 	  function makeVoiceover(stream, selectedIdx, switchFn) {
-	 	 var title = stream.language || Lampa.Lang.translate('player_unknown');
-	 	 if (stream.displayTitle) title += ' / ' + stream.displayTitle;
-	 	 if (stream.channels) title += ' (' + stream.channels + ' Ch)';
 	 	 return {
-	 		 title: title,
 	 		 index: stream.index,
+	 		 language: stream.language || '',
+	 		 label: stream.displayTitle || '',
+	 		 extra: {
+	 			 channels: stream.channels || 0
+	 		 },
 	 		 selected: stream.index === selectedIdx,
 	 		 onSelect: function() {
 	 			 remoteLog('onSelect: выбрана дорожка с индексом', stream.index);
@@ -1036,7 +1037,7 @@
 	 	 };
 	  }
 	  
-	  // Функция для переключения аудио (она уже объявлена выше, но мы её используем)
+	  // Функция для переключения аудио
 	  var switchAudio = function (audioIndex) {
 	 	 remoteLog('switchAudio: переключение на индекс', audioIndex);
 	 	 var switchOpts = {
