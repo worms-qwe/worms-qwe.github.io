@@ -1018,6 +1018,8 @@
 
         // Вспомогательная функция для создания элемента голоса
         function createVoiceover(stream, selectedIdx) {
+		  remoteLog('createVoiceover: ВХОД stream     ', stream);
+		  remoteLog('createVoiceover: ВХОД selectedIdx', selectedIdx);
           var title = stream.language || Lampa.Lang.translate('player_unknown');
           if (stream.displayTitle) title += ' / ' + stream.displayTitle;
           if (stream.channels) title += ' (' + stream.channels + ' Ch)';
