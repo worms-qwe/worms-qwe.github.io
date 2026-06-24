@@ -780,7 +780,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с добавлением логирования
+  // ИСПРАВЛЕННАЯ ФУНКЦИЯ streamUrl (добавлено MediaSourceId в postBody)
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -862,6 +862,13 @@
     } else {
       remoteLog('streamUrl: запрос без audioStreamIndex');
     }
+
+    // ---- ВАЖНОЕ ИСПРАВЛЕНИЕ: передаём MediaSourceId в теле запроса ----
+    if (opts.mediaSourceId) {
+      postBody.MediaSourceId = opts.mediaSourceId;
+      remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
+    }
+    // ----------------------------------------------------------------
 
     // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
     postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
@@ -962,7 +969,7 @@
     });
   }
 
-  // ИСПРАВЛЕННАЯ ФУНКЦИЯ playItemFromRow (без arguments.callee)
+  // Функция playItemFromRow (без изменений, но использует исправленную streamUrl)
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
     var variant;
@@ -1105,6 +1112,8 @@
       return playItemFromRow(row, userId, false, opts);
     }));
   }
+
+  // Остальной код без изменений (от функции ticksToSeconds и до конца)
 
   function ticksToSeconds(ticks) {
     var n = Number(ticks);
@@ -2043,6 +2052,14 @@
 
     return hubDataInflight;
   }
+
+  // Далее идут функции рендеринга, меню, настроек и инициализации (они без изменений)
+  // Они не показаны для краткости, но предполагаются полными.
+  // В реальном коде они должны быть здесь.
+
+  // ... (весь остальной код от bindJellyfinCard до init включительно)
+
+  // Для завершения файла приведу завершающую часть (init и т.д.):
 
   function bindJellyfinCard($card, row, ctx) {
     $card.on('hover:touch', function () {
