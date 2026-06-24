@@ -4,6 +4,38 @@
   if (window.__jellyfinPlugin_loaded) return;
   window.__jellyfinPlugin_loaded = true;
 
+  // --- Функция удалённого логирования ---
+  function remoteLog() {
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function (arg) {
+      if (typeof arg === 'object') {
+        try {
+          return JSON.stringify(arg);
+        } catch (e) {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    }).join(' ');
+
+    // Попытка отправить на удалённый сервер, если указан URL в настройках
+    var logUrl = storageStr('LogUrl', '');
+    if (logUrl) {
+      try {
+        $.ajax({
+          url: logUrl,
+          type: 'POST',
+          data: JSON.stringify({ message: message }),
+          contentType: 'application/json',
+          timeout: 2000
+        });
+      } catch (e) {}
+    }
+
+    console.log.apply(console, args);
+  }
+  // --------------------------------------------
+
   var STORAGE_PREFIX = 'jellyfin';
   var SETTINGS_COMPONENT = STORAGE_PREFIX;
   var PANEL_COMPONENT = STORAGE_PREFIX + 'Panel';
@@ -70,19 +102,21 @@
   var libraryIndexInflight = null;
   var hubDataInflight = null;
 
-  // --- НОВАЯ ФУНКЦИЯ ДЛЯ ДОСТУПА К ПАНЕЛИ ПЛЕЕРА ---
+  // --- Функция для доступа к панели плеера ---
   var panelListener = null;
 
   function getPanelListener() {
     if (panelListener !== null) return panelListener;
     if (Lampa.Player && Lampa.Player.panel && Lampa.Player.panel.listener) {
       panelListener = Lampa.Player.panel.listener;
+      remoteLog('panelListener получен');
     } else {
       panelListener = false;
+      remoteLog('panelListener не найден');
     }
     return panelListener;
   }
-  // ------------------------------------------------
+  // --------------------------------------------
 
   function addLang() {
     Lampa.Lang.add({
@@ -747,7 +781,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl
+  // ИЗМЕНЁННАЯ ФУНКЦИЯ streamUrl с добавлением логирования
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -825,6 +859,9 @@
     // Добавляем AudioStreamIndex, если передан
     if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
       postBody.AudioStreamIndex = opts.audioStreamIndex;
+      remoteLog('streamUrl: запрос с audioStreamIndex =', opts.audioStreamIndex);
+    } else {
+      remoteLog('streamUrl: запрос без audioStreamIndex');
     }
 
     // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
@@ -844,6 +881,7 @@
     });
 
     var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
+    remoteLog('streamUrl: запрос к', url, 'с телом', postBody);
     return jfHttp(url, {
       method: 'POST',
       jsonBody: postBody,
@@ -903,6 +941,7 @@
       if (selectedAudioIndex === null && audioStreams.length > 0) {
         selectedAudioIndex = audioStreams[0].index;
       }
+      remoteLog('streamUrl: получены аудиопотоки', audioStreams, 'выбранный', selectedAudioIndex);
       // ---------------------------------
 
       return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
@@ -924,7 +963,7 @@
     });
   }
 
-  // ИЗМЕНЁННАЯ ФУНКЦИЯ playItemFromRow
+  // ИЗМЕНЁННАЯ ФУНКЦИЯ playItemFromRow с логированием
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
     var variant;
@@ -941,6 +980,8 @@
       qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
       audioStreamIndex: opts.audioStreamIndex // передаём индекс
     };
+
+    remoteLog('playItemFromRow: streamOpts', streamOpts);
 
     return streamUrl(playTarget.id, streamOpts).then(function (result) {
       var item = {
@@ -961,9 +1002,12 @@
       var audioStreams = result.audioStreams || [];
       var selectedIndex = result.selectedAudioIndex;
 
+      remoteLog('playItemFromRow: audioStreams', audioStreams, 'selectedIndex', selectedIndex);
+
       if (audioStreams.length > 0) {
         // Функция для переключения дорожки и получения нового URL
         var switchAudio = function (audioIndex) {
+          remoteLog('switchAudio: переключение на индекс', audioIndex);
           var switchOpts = {
             userId: userId,
             startTicks: streamOpts.startTicks,
@@ -971,7 +1015,9 @@
             qualityPreset: streamOpts.qualityPreset,
             audioStreamIndex: audioIndex
           };
+          remoteLog('switchAudio: switchOpts', switchOpts);
           return streamUrl(playTarget.id, switchOpts).then(function (res) {
+            remoteLog('switchAudio: получен новый URL', res.url);
             return res.url;
           });
         };
@@ -987,8 +1033,10 @@
             index: stream.index,
             selected: stream.index === selectedIndex,
             onSelect: function () {
+              remoteLog('onSelect: выбрана дорожка с индексом', stream.index);
               var chosenIndex = stream.index;
               switchAudio(chosenIndex).then(function (newUrl) {
+                remoteLog('onSelect: успешно получен новый URL', newUrl);
                 // Обновляем список voiceovers с новым выбранным индексом
                 var updatedVoiceovers = audioStreams.map(function (s) {
                   var t = s.language || Lampa.Lang.translate('player_unknown');
@@ -998,19 +1046,24 @@
                     title: t,
                     index: s.index,
                     selected: s.index === chosenIndex,
-                    onSelect: arguments.callee // простая передача функции, но лучше сохранить ссылку
+                    onSelect: arguments.callee
                   };
                 });
                 // Обновляем список в панели, если есть доступ
                 var panel = Lampa.Player && Lampa.Player.panel;
                 if (panel && typeof panel.setTracks === 'function') {
+                  remoteLog('onSelect: обновляем панель через panel.setTracks');
                   panel.setTracks(updatedVoiceovers);
+                } else {
+                  remoteLog('onSelect: panel.setTracks недоступен');
                 }
                 // Отправляем событие flow для перезагрузки видео
                 var panelListener = getPanelListener();
                 if (panelListener) {
+                  remoteLog('onSelect: отправляем событие flow');
                   panelListener.send('flow', { url: newUrl });
                 } else {
+                  remoteLog('onSelect: panelListener отсутствует, используем fallback');
                   // Fallback: перезапуск плеера
                   var work = Lampa.Player.playdata();
                   if (work) {
@@ -1022,11 +1075,14 @@
                         duration: work.timeline ? work.timeline.duration : 0
                       }
                     });
-                    Lampa.Player.close();
+                    remoteLog('onSelect: перезапускаем плеер с newData', newData);
                     Lampa.Player.play(newData);
+                  } else {
+                    remoteLog('onSelect: Lampa.Player.playdata() вернул null');
                   }
                 }
               }).catch(function (err) {
+                remoteLog('onSelect: ошибка при переключении', err);
                 Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
               });
             }
@@ -1034,6 +1090,7 @@
         });
       }
       item.voiceovers = voiceovers;
+      remoteLog('playItemFromRow: voiceovers созданы', voiceovers);
       // ------------------------------------------------
 
       if (transcodingEnabled() && !opts.singleStream) {
