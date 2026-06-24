@@ -1073,6 +1073,7 @@
                       }
                     });
                     remoteLog('onSelect: перезапускаем плеер с newData', newData);
+                    Lampa.Player.close();
                     Lampa.Player.play(newData);
                   } else {
                     remoteLog('onSelect: Lampa.Player.playdata() вернул null');
