@@ -101,7 +101,7 @@
   var libraryIndexInflight = null;
   var hubDataInflight = null;
 
-  // --- Функция для доступа к панели плеера (не используется, но оставлена для совместимости) ---
+  // --- Функция для доступа к панели плеера (не используется) ---
   var panelListener = null;
 
   function getPanelListener() {
@@ -780,7 +780,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // Функция streamUrl с добавлением MediaSourceId в тело запроса и поддержкой audioStreamIndex
+  // Функция streamUrl с добавлением MediaSourceId в тело запроса
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -863,7 +863,7 @@
       remoteLog('streamUrl: запрос без audioStreamIndex');
     }
 
-    // Передаём MediaSourceId в теле запроса (важно для корректного транскодирования)
+    // Передаём MediaSourceId в теле запроса
     if (opts.mediaSourceId) {
       postBody.MediaSourceId = opts.mediaSourceId;
       remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
@@ -903,7 +903,6 @@
         if (!transcodingUrl) throw new Error('No TranscodingUrl');
         playUrl = apiBase() + transcodingUrl.replace(/\\u0026/g, '&');
       } else {
-        // Прямой стрим (без транскодирования)
         var parts = [
           'DeviceId=' + encodeURIComponent(deviceId),
           'MediaSourceId=' + encodeURIComponent(mediaSourceId(opts.mediaSourceId || id)),
@@ -953,22 +952,7 @@
     });
   }
 
-  function buildStreamQualityMap(itemId, opts) {
-    if (!transcodingEnabled()) return Promise.resolve(null);
-    var map = {};
-    var baseOpts = Object.assign({}, opts);
-    var promises = PLAYER_TRANSCODE_QUALITIES.map(function (entry) {
-      var localOpts = Object.assign({}, baseOpts, { qualityPreset: entry.preset });
-      return streamUrl(itemId, localOpts).then(function (result) {
-        map[entry.key] = result.url;
-      });
-    });
-    return Promise.all(promises).then(function () {
-      return map;
-    });
-  }
-
-  // Функция playItemFromRow с исправленным созданием voiceovers и fallback при переключении
+  // Функция playItemFromRow (создаёт объект качества с call-функциями, без playlist и movie)
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
     var variant;
@@ -1051,8 +1035,6 @@
                     index: s.index,
                     selected: s.index === chosenIndex,
                     onSelect: function() {
-                      // Рекурсивно вызываем переключение с этим индексом
-                      // Чтобы избежать зацикливания, просто вызываем switchAudio и перезапускаем плеер
                       var innerIndex = s.index;
                       switchAudio(innerIndex).then(function (innerUrl) {
                         var work = Lampa.Player.playdata();
@@ -1065,7 +1047,7 @@
                               title: tt,
                               index: st.index,
                               selected: st.index === innerIndex,
-                              onSelect: arguments.callee // ссылка на эту же функцию
+                              onSelect: arguments.callee
                             };
                           });
                           var newData = Object.assign({}, work, {
@@ -1087,7 +1069,6 @@
                     }
                   };
                 });
-                // Получаем текущий work
                 var work = Lampa.Player.playdata();
                 if (work) {
                   var newData = Object.assign({}, work, {
@@ -1118,28 +1099,83 @@
       }
       item.voiceovers = voiceovers;
       remoteLog('playItemFromRow: voiceovers созданы', voiceovers);
+
+      // ---- СОЗДАЁМ ОБЪЕКТ КАЧЕСТВА С CALL-ФУНКЦИЯМИ (без предзапроса URL) ----
+      if (transcodingEnabled()) {
+        var qualityObj = {};
+        PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
+          var presetKey = entry.preset;
+          var qualityLabel = entry.key;
+          qualityObj[qualityLabel] = {
+            label: qualityLabel,
+            call: function(callback) {
+              var qualityOpts = {
+                userId: userId,
+                startTicks: streamOpts.startTicks,
+                mediaSourceId: streamOpts.mediaSourceId,
+                qualityPreset: presetKey,
+                audioStreamIndex: streamOpts.audioStreamIndex
+              };
+              streamUrl(playTarget.id, qualityOpts).then(function (res) {
+                remoteLog('quality call: получен URL для', qualityLabel, res.url);
+                // Сначала передаём URL через callback (для интерфейса выбора)
+                if (typeof callback === 'function') {
+                  callback(res.url);
+                }
+                // Затем перезапускаем плеер с новым URL
+                var work = Lampa.Player.playdata();
+                if (work) {
+                  var newData = Object.assign({}, work, {
+                    url: res.url,
+                    timeline: {
+                      time: work.timeline ? work.timeline.time : 0,
+                      percent: work.timeline ? work.timeline.percent : 0,
+                      duration: work.timeline ? work.timeline.duration : 0
+                    }
+                  });
+                  remoteLog('quality call: перезапускаем плеер с новым URL', newData);
+                  Lampa.Player.play(newData);
+                }
+              }).catch(function (err) {
+                remoteLog('quality call: ошибка при запросе URL для', qualityLabel, err);
+                Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+              });
+            }
+          };
+        });
+        item.quality = qualityObj;
+      }
       // ------------------------------------------------
 
-      if (transcodingEnabled() && !opts.singleStream) {
-        return buildStreamQualityMap(playTarget.id, streamOpts).then(function (qualityMap) {
-          if (qualityMap) item.quality = qualityMap;
-          if (includeMovie) item.movie = playTarget.raw;
-          return item;
-        });
-      } else {
-        if (includeMovie) item.movie = playTarget.raw;
-        return item;
-      }
+      return item;
     });
   }
 
-  function playlistFromRows(rows, userId, opts) {
-    return Promise.all(rows.map(function (row) {
-      return playItemFromRow(row, userId, false, opts);
-    }));
+  // Функция playRow (без playlist)
+  function playRow(row, allRows, opts) {
+    opts = opts || {};
+    var streamOpts = {
+      singleStream: !!opts.singleStream || !usesLampaNativePlayer(),
+      qualityTarget: opts.qualityTarget || '',
+    };
+    var readyPromise =
+      row && row.variantsResolved ? Promise.resolve(row) : ensurePlaybackVariants(row);
+
+    readyPromise
+      .then(function (ready) {
+        return resolveUserId().then(function (userId) {
+          return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
+            Lampa.Player.play(playItem);
+          });
+        });
+      })
+      .catch(function () {
+        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+      });
   }
 
-  // Остальные функции (ticksToSeconds, tmdbFromItem, etc.) остаются без изменений
+  // ----- ОСТАЛЬНЫЕ ФУНКЦИИ (без изменений, кроме удаления playlistFromRows и buildStreamQualityMap) -----
+
   function ticksToSeconds(ticks) {
     var n = Number(ticks);
     if (!isFinite(n) || n <= 0) return 0;
@@ -2078,6 +2114,7 @@
     return hubDataInflight;
   }
 
+  // ----- ФУНКЦИИ РЕНДЕРИНГА, МЕНЮ, НАСТРОЕК (без изменений) -----
   function bindJellyfinCard($card, row, ctx) {
     $card.on('hover:touch', function () {
       if (ctx.onTouch) ctx.onTouch(this, $card, row);
@@ -2743,32 +2780,6 @@
       method: tmdb.method,
       source: Lampa.Storage.get('source') || 'tmdb',
     });
-  }
-
-  function playRow(row, allRows, opts) {
-    opts = opts || {};
-    var rows = allRows && allRows.length ? allRows : [row];
-    var streamOpts = {
-      singleStream: !!opts.singleStream || !usesLampaNativePlayer(),
-      qualityTarget: opts.qualityTarget || '',
-    };
-    var readyPromise =
-      row && row.variantsResolved ? Promise.resolve(row) : ensurePlaybackVariants(row);
-
-    readyPromise
-      .then(function (ready) {
-        return resolveUserId().then(function (userId) {
-          return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
-            return playlistFromRows(rows, userId, streamOpts).then(function (playlist) {
-              playItem.playlist = playlist;
-              Lampa.Player.play(playItem);
-            });
-          });
-        });
-      })
-      .catch(function () {
-        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-      });
   }
 
   function episodePickerItem(row) {
