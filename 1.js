@@ -1063,7 +1063,7 @@
                           Lampa.Player.play(newData);
                         }
                       }).catch(function (err) {
-                        remoteLog('onSelect: ошибка при переключении', err);
+                        remoteLog('onSelect: ошибка при переключении 1', err);
                         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
                       });
                     }
@@ -1086,7 +1086,7 @@
                   remoteLog('onSelect: Lampa.Player.playdata() вернул null');
                 }
               }).catch(function (err) {
-                remoteLog('onSelect: ошибка при переключении', err);
+                remoteLog('onSelect: ошибка при переключении 2', err);
                 Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
               });
             }
