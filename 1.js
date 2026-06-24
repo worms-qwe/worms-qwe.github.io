@@ -101,7 +101,7 @@
   var libraryIndexInflight = null;
   var hubDataInflight = null;
 
-  // --- Функция для доступа к панели плеера ---
+  // --- Функция для доступа к панели плеера (не используется, но оставлена для совместимости) ---
   var panelListener = null;
 
   function getPanelListener() {
@@ -780,7 +780,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // ИСПРАВЛЕННАЯ ФУНКЦИЯ streamUrl (добавлено MediaSourceId в postBody)
+  // Функция streamUrl с добавлением MediaSourceId в тело запроса и поддержкой audioStreamIndex
   function streamUrl(itemId, opts) {
     opts = opts || {};
     var id = String(itemId || '');
@@ -863,12 +863,11 @@
       remoteLog('streamUrl: запрос без audioStreamIndex');
     }
 
-    // ---- ВАЖНОЕ ИСПРАВЛЕНИЕ: передаём MediaSourceId в теле запроса ----
+    // Передаём MediaSourceId в теле запроса (важно для корректного транскодирования)
     if (opts.mediaSourceId) {
       postBody.MediaSourceId = opts.mediaSourceId;
       remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
     }
-    // ----------------------------------------------------------------
 
     // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
     postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
@@ -969,7 +968,7 @@
     });
   }
 
-  // Функция playItemFromRow (без изменений, но использует исправленную streamUrl)
+  // Функция playItemFromRow с исправленным созданием voiceovers и fallback при переключении
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
     var variant;
@@ -984,7 +983,7 @@
       startTicks: rowStartTicks(playTarget),
       mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
       qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
-      audioStreamIndex: opts.audioStreamIndex // передаём индекс
+      audioStreamIndex: opts.audioStreamIndex
     };
 
     remoteLog('playItemFromRow: streamOpts', streamOpts);
@@ -1044,40 +1043,66 @@
                 remoteLog('onSelect: успешно получен новый URL', newUrl);
                 // Обновляем список voiceovers с новым выбранным индексом
                 var updatedVoiceovers = audioStreams.map(function (s) {
-                  return createVoiceover(s, chosenIndex);
+                  var t = s.language || Lampa.Lang.translate('player_unknown');
+                  if (s.displayTitle) t += ' / ' + s.displayTitle;
+                  if (s.channels) t += ' (' + s.channels + ' Ch)';
+                  return {
+                    title: t,
+                    index: s.index,
+                    selected: s.index === chosenIndex,
+                    onSelect: function() {
+                      // Рекурсивно вызываем переключение с этим индексом
+                      // Чтобы избежать зацикливания, просто вызываем switchAudio и перезапускаем плеер
+                      var innerIndex = s.index;
+                      switchAudio(innerIndex).then(function (innerUrl) {
+                        var work = Lampa.Player.playdata();
+                        if (work) {
+                          var innerVoiceovers = audioStreams.map(function (st) {
+                            var tt = st.language || Lampa.Lang.translate('player_unknown');
+                            if (st.displayTitle) tt += ' / ' + st.displayTitle;
+                            if (st.channels) tt += ' (' + st.channels + ' Ch)';
+                            return {
+                              title: tt,
+                              index: st.index,
+                              selected: st.index === innerIndex,
+                              onSelect: arguments.callee // ссылка на эту же функцию
+                            };
+                          });
+                          var newData = Object.assign({}, work, {
+                            url: innerUrl,
+                            voiceovers: innerVoiceovers,
+                            timeline: {
+                              time: work.timeline ? work.timeline.time : 0,
+                              percent: work.timeline ? work.timeline.percent : 0,
+                              duration: work.timeline ? work.timeline.duration : 0
+                            }
+                          });
+                          remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
+                          Lampa.Player.play(newData);
+                        }
+                      }).catch(function (err) {
+                        remoteLog('onSelect: ошибка при переключении', err);
+                        Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+                      });
+                    }
+                  };
                 });
-                // Обновляем список в панели, если есть доступ
-                var panel = Lampa.Player && Lampa.Player.panel;
-                if (panel && typeof panel.setTracks === 'function') {
-                  remoteLog('onSelect: обновляем панель через panel.setTracks');
-                  panel.setTracks(updatedVoiceovers);
+                // Получаем текущий work
+                var work = Lampa.Player.playdata();
+                if (work) {
+                  var newData = Object.assign({}, work, {
+                    url: newUrl,
+                    voiceovers: updatedVoiceovers,
+                    timeline: {
+                      time: work.timeline ? work.timeline.time : 0,
+                      percent: work.timeline ? work.timeline.percent : 0,
+                      duration: work.timeline ? work.timeline.duration : 0
+                    }
+                  });
+                  remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
+                  Lampa.Player.play(newData);
                 } else {
-                  remoteLog('onSelect: panel.setTracks недоступен');
-                }
-                // Отправляем событие flow для перезагрузки видео
-                var panelListener = getPanelListener();
-                if (panelListener) {
-                  remoteLog('onSelect: отправляем событие flow');
-                  panelListener.send('flow', { url: newUrl });
-                } else {
-                  remoteLog('onSelect: panelListener отсутствует, используем fallback');
-                  // Fallback: перезапуск плеера
-                  var work = Lampa.Player.playdata();
-                  if (work) {
-                    var newData = Object.assign({}, work, {
-                      url: newUrl,
-                      timeline: {
-                        time: work.timeline ? work.timeline.time : 0,
-                        percent: work.timeline ? work.timeline.percent : 0,
-                        duration: work.timeline ? work.timeline.duration : 0
-                      }
-                    });
-                    remoteLog('onSelect: перезапускаем плеер с newData', newData);
-                    Lampa.Player.close();
-                    Lampa.Player.play(newData);
-                  } else {
-                    remoteLog('onSelect: Lampa.Player.playdata() вернул null');
-                  }
+                  remoteLog('onSelect: Lampa.Player.playdata() вернул null');
                 }
               }).catch(function (err) {
                 remoteLog('onSelect: ошибка при переключении', err);
@@ -1098,11 +1123,11 @@
       if (transcodingEnabled() && !opts.singleStream) {
         return buildStreamQualityMap(playTarget.id, streamOpts).then(function (qualityMap) {
           if (qualityMap) item.quality = qualityMap;
-          //if (includeMovie) item.movie = playTarget.raw;
+          if (includeMovie) item.movie = playTarget.raw;
           return item;
         });
       } else {
-        //if (includeMovie) item.movie = playTarget.raw;
+        if (includeMovie) item.movie = playTarget.raw;
         return item;
       }
     });
@@ -1114,8 +1139,7 @@
     }));
   }
 
-  // Остальной код без изменений (от функции ticksToSeconds и до конца)
-
+  // Остальные функции (ticksToSeconds, tmdbFromItem, etc.) остаются без изменений
   function ticksToSeconds(ticks) {
     var n = Number(ticks);
     if (!isFinite(n) || n <= 0) return 0;
@@ -2054,14 +2078,6 @@
     return hubDataInflight;
   }
 
-  // Далее идут функции рендеринга, меню, настроек и инициализации (они без изменений)
-  // Они не показаны для краткости, но предполагаются полными.
-  // В реальном коде они должны быть здесь.
-
-  // ... (весь остальной код от bindJellyfinCard до init включительно)
-
-  // Для завершения файла приведу завершающую часть (init и т.д.):
-
   function bindJellyfinCard($card, row, ctx) {
     $card.on('hover:touch', function () {
       if (ctx.onTouch) ctx.onTouch(this, $card, row);
@@ -2744,7 +2760,7 @@
         return resolveUserId().then(function (userId) {
           return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
             return playlistFromRows(rows, userId, streamOpts).then(function (playlist) {
-              // playItem.playlist = playlist;
+              playItem.playlist = playlist;
               Lampa.Player.play(playItem);
             });
           });
