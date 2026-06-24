@@ -955,6 +955,7 @@
   // Функция playItemFromRow (создаёт объект качества с call-функциями, без playlist и movie)
   function playItemFromRow(row, userId, includeMovie, opts) {
     opts = opts || {};
+	remoteLog('playItemFromRow: ВХОД', { rowId: row.id, userId: userId, includeMovie: includeMovie, opts: opts });
     var variant;
     if (opts.qualityTarget && !usesLampaNativePlayer()) {
       variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
@@ -973,7 +974,8 @@
     remoteLog('playItemFromRow: streamOpts', streamOpts);
 
     return streamUrl(playTarget.id, streamOpts).then(function (result) {
-      var item = {
+      remoteLog('playItemFromRow: streamUrl результат', { url: result.url, subtitlesCount: result.subtitles ? result.subtitles.length : 0, audioStreamsCount: result.audioStreams ? result.audioStreams.length : 0 });
+	  var item = {
         title: row.title,
         url: result.url,
       };
@@ -1008,7 +1010,10 @@
           return streamUrl(playTarget.id, switchOpts).then(function (res) {
             remoteLog('switchAudio: получен новый URL', res.url);
             return res.url;
-          });
+          }).catch(function (err) {
+			remoteLog('switchAudio: ОШИБКА при получении URL', err, err.stack);
+			throw err; // пробрасываем дальше, чтобы обработать в onSelect
+		  });
         };
 
         // Вспомогательная функция для создания элемента голоса
@@ -1063,7 +1068,7 @@
                           Lampa.Player.play(newData);
                         }
                       }).catch(function (err) {
-                        remoteLog('onSelect: ошибка при переключении 1', err);
+                        remoteLog('onSelect: ошибка при переключении 1', err, err.stack);
                         Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
                       });
                     }
@@ -1086,7 +1091,7 @@
                   remoteLog('onSelect: Lampa.Player.playdata() вернул null');
                 }
               }).catch(function (err) {
-                remoteLog('onSelect: ошибка при переключении 2', err);
+                remoteLog('onSelect: ошибка при переключении 2', err, err.stack);
                 Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
               });
             }
@@ -1137,18 +1142,23 @@
                   Lampa.Player.play(newData);
                 }
               }).catch(function (err) {
-                remoteLog('quality call: ошибка при запросе URL для', qualityLabel, err);
+                remoteLog('quality call: ошибка при запросе URL для', qualityLabel, err, err.stack);
                 Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
               });
             }
           };
         });
         item.quality = qualityObj;
+        remoteLog('playItemFromRow: quality создан', item.quality);
       }
       // ------------------------------------------------
 
-      return item;
-    });
+          remoteLog('playItemFromRow: финальный item', { title: item.title, url: item.url, voiceoversCount: (item.voiceovers || []).length, hasQuality: !!item.quality });
+          return item;
+        }).catch(function (err) {
+          remoteLog('playItemFromRow: ОШИБКА', err, err.stack);
+          throw err;
+        });
   }
 
   // Функция playRow (без playlist)
