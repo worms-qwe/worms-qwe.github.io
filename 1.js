@@ -845,9 +845,14 @@
                   { Type: 'Video', Conditions: [{ Condition: 'LessThanEqual', Property: 'Width', Value: quality.maxWidth, IsRequired: false }] }
               ],
               SubtitleProfiles: [
-                  { Format: 'ass', Method: 'External' },
-                  { Format: 'ssa', Method: 'External' },
-                  { Format: 'srt', Method: 'External' }
+                  { Format: 'srt', Method: 'External' },
+                  { Format: 'ass', Method: 'Embed' },
+                  { Format: 'ssa', Method: 'Embed' },
+                  //{ Format: 'vtt', Method: 'External' },
+	      		  //"Method":"Embed"
+		  		  //"Method":"External
+	      		  //"Method":"HLS"
+	      		  //"Method":"Encode"
               ],
               ResponseProfiles: [
                   { Type: 'Video', Container: 'm4v', MimeType: 'video/mp4' }
