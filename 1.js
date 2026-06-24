@@ -1098,11 +1098,11 @@
       if (transcodingEnabled() && !opts.singleStream) {
         return buildStreamQualityMap(playTarget.id, streamOpts).then(function (qualityMap) {
           if (qualityMap) item.quality = qualityMap;
-          if (includeMovie) item.movie = playTarget.raw;
+          //if (includeMovie) item.movie = playTarget.raw;
           return item;
         });
       } else {
-        if (includeMovie) item.movie = playTarget.raw;
+        //if (includeMovie) item.movie = playTarget.raw;
         return item;
       }
     });
