@@ -1059,7 +1059,7 @@
                               duration: work.timeline ? work.timeline.duration : 0
                             }
                           });
-                          remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
+                          remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers 1', newData);
                           Lampa.Player.play(newData);
                         }
                       }).catch(function (err) {
@@ -1080,7 +1080,7 @@
                       duration: work.timeline ? work.timeline.duration : 0
                     }
                   });
-                  remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
+                  remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers 2', newData);
                   Lampa.Player.play(newData);
                 } else {
                   remoteLog('onSelect: Lampa.Player.playdata() вернул null');
