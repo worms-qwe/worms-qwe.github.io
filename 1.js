@@ -1068,6 +1068,7 @@
       if (result.subtitles && result.subtitles.length) {
         item.subtitles = result.subtitles;
       }
+	  remoteLog('playItemFromRow: item.subtitles', item.subtitles );
 
 	  // ---- СОЗДАЁМ СПИСОК АУДИОДОРОЖЕК ДЛЯ ПАНЕЛИ ----
 	  var audioStreams = result.audioStreams || [];
@@ -1195,7 +1196,8 @@
       }
       // ------------------------------------------------
 
-          remoteLog('playItemFromRow: финальный item', { title: item.title, url: item.url, voiceoversCount: (item.voiceovers || []).length, hasQuality: !!item.quality });
+          //remoteLog('playItemFromRow: финальный item', { title: item.title, url: item.url, voiceoversCount: (item.voiceovers || []).length, hasQuality: !!item.quality });
+		  remoteLog('playItemFromRow: финальный item', item);
           return item;
         }).catch(function (err) {
           remoteLog('playItemFromRow: ОШИБКА', err, err.stack);
