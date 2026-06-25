@@ -780,8 +780,7 @@
     return Math.floor(row.resumeSec * 10000000);
   }
 
-  // Функция streamUrl с добавлением MediaSourceId в тело запроса
-  function streamUrlInternal(itemId, opts, isFirstTry) {
+  function streamUrlInternal(itemId, opts) {
       opts = opts || {};
       var id = String(itemId || '');
       if (!id) return Promise.reject(new Error('No item id'));
@@ -855,21 +854,25 @@
           }
       };
   
-      // Добавляем AudioStreamIndex, если передан
       if (opts.audioStreamIndex !== undefined && opts.audioStreamIndex !== null) {
           postBody.AudioStreamIndex = opts.audioStreamIndex;
-          remoteLog('streamUrl: запрос с audioStreamIndex =', opts.audioStreamIndex);
+          remoteLog('streamUrlInternal: запрос с audioStreamIndex =', opts.audioStreamIndex);
       } else {
-          remoteLog('streamUrl: запрос без audioStreamIndex');
+          remoteLog('streamUrlInternal: запрос без audioStreamIndex');
       }
   
-      // Передаём MediaSourceId в теле запроса
+      if (opts.subtitleStreamIndex !== undefined && opts.subtitleStreamIndex !== null) {
+          postBody.SubtitleStreamIndex = opts.subtitleStreamIndex;
+          remoteLog('streamUrlInternal: запрос с subtitleStreamIndex =', opts.subtitleStreamIndex);
+      } else {
+          remoteLog('streamUrlInternal: запрос без subtitleStreamIndex');
+      }
+  
       if (opts.mediaSourceId) {
           postBody.MediaSourceId = opts.mediaSourceId;
-          remoteLog('streamUrl: с MediaSourceId =', opts.mediaSourceId);
+          remoteLog('streamUrlInternal: с MediaSourceId =', opts.mediaSourceId);
       }
   
-      // Обновляем все условия с Width в CodecProfiles и TranscodingProfiles
       postBody.DeviceProfile.CodecProfiles.forEach(function (profile) {
           if (profile.Conditions) {
               profile.Conditions.forEach(function (cond) {
@@ -886,7 +889,7 @@
       });
   
       var url = '/Items/' + encodeURIComponent(id) + '/PlaybackInfo';
-      remoteLog('streamUrl: запрос к', url, 'с телом', postBody);
+      remoteLog('streamUrlInternal: запрос к', url, 'с телом', postBody);
       return jfHttp(url, {
           method: 'POST',
           jsonBody: postBody,
@@ -896,7 +899,6 @@
           if (sources.length === 0) throw new Error('No media sources');
           var source = sources[0];
   
-          // Формируем URL для воспроизведения
           var playUrl;
           if (transcodingEnabled()) {
               var transcodingUrl = source.TranscodingUrl;
@@ -914,30 +916,29 @@
               playUrl = apiBase() + '/Videos/' + encodeURIComponent(id) + '/stream?' + parts.join('&');
           }
   
-		  // Извлекаем субтитры
-		  var subtitles = [];
-		  var streams = source.MediaStreams || [];
-		  streams.forEach(function (stream) {
-		 	 if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
-		 		 var sub = {
-		 			 url: apiBase() + stream.DeliveryUrl,
-		 			 label: stream.DisplayTitle || stream.Language || 'Subtitle',
-		 			 index: stream.Index,
-		 			 language: stream.Language || 'Unknown',
-		 			 extra: { track_num: stream.Index }
-		 		 };
-		 		 if (stream.IsDefault) {
-		 			 sub.selected = true;
-		 		 }
-		 		 subtitles.push(sub);
-		 	 }
-		  });
-		  // Если дефолтный не найден, помечаем первый как выбранный
-		  if (subtitles.length && !subtitles.some(s => s.selected)) {
-		 	 subtitles[0].selected = true;
-		  }
+          // Субтитры
+          var subtitles = [];
+          var streams = source.MediaStreams || [];
+          streams.forEach(function (stream) {
+              if (stream.Type === 'Subtitle' && stream.DeliveryUrl) {
+                  var sub = {
+                      url: apiBase() + stream.DeliveryUrl,
+                      label: stream.DisplayTitle || stream.Language || 'Subtitle',
+                      index: stream.Index,
+                      language: stream.Language || 'Unknown',
+                      extra: { track_num: stream.Index }
+                  };
+                  if (stream.IsDefault) {
+                      sub.selected = true;
+                  }
+                  subtitles.push(sub);
+              }
+          });
+          if (subtitles.length && !subtitles.some(s => s.selected)) {
+              subtitles[0].selected = true;
+          }
   
-          // Извлекаем аудиопотоки
+          // Аудио
           var audioStreams = [];
           var selectedAudioIndex = null;
           streams.forEach(function (stream) {
@@ -956,203 +957,299 @@
           if (selectedAudioIndex === null && audioStreams.length > 0) {
               selectedAudioIndex = audioStreams[0].index;
           }
-          remoteLog('streamUrl: получены аудиопотоки', audioStreams, 'выбранный', selectedAudioIndex);
+          remoteLog('streamUrlInternal: аудиопотоки', audioStreams, 'выбранный', selectedAudioIndex);
   
           return { url: playUrl, subtitles: subtitles, audioStreams: audioStreams, selectedAudioIndex: selectedAudioIndex };
       });
   }
   
-  // Основная функция streamUrl с автоматическим выбором дефолтной дорожки
+  // Основная функция streamUrl с автоматическим выбором дефолтных дорожек
   function streamUrl(itemId, opts) {
       opts = opts || {};
-      // Если audioStreamIndex не передан, делаем два запроса
-      if (opts.audioStreamIndex === undefined || opts.audioStreamIndex === null) {
-          remoteLog('streamUrl: первый запрос (без индекса) для получения дефолтной дорожки');
-          return streamUrlInternal(itemId, opts, true).then(function (firstResult) {
-              var defaultIndex = firstResult.selectedAudioIndex;
-              if (defaultIndex !== null && defaultIndex !== undefined) {
-                  remoteLog('streamUrl: определён дефолтный индекс', defaultIndex, ', делаем второй запрос');
-                  var newOpts = Object.assign({}, opts, { audioStreamIndex: defaultIndex });
-                  return streamUrlInternal(itemId, newOpts, false);
-              } else {
-                  remoteLog('streamUrl: дефолтный индекс не найден, используем первый результат');
-                  return firstResult;
-              }
-          });
-      } else {
-          // Индекс передан, делаем один запрос
-          return streamUrlInternal(itemId, opts, false);
+      var audioIndex = opts.audioStreamIndex;
+      var subtitleIndex = opts.subtitleStreamIndex;
+  
+      if (audioIndex !== undefined && audioIndex !== null && subtitleIndex !== undefined && subtitleIndex !== null) {
+          remoteLog('streamUrl: оба индекса переданы, один запрос');
+          return streamUrlInternal(itemId, opts);
       }
+  
+      remoteLog('streamUrl: первый запрос для определения недостающих индексов');
+      var firstOpts = Object.assign({}, opts);
+      if (audioIndex === undefined || audioIndex === null) delete firstOpts.audioStreamIndex;
+      if (subtitleIndex === undefined || subtitleIndex === null) delete firstOpts.subtitleStreamIndex;
+  
+      return streamUrlInternal(itemId, firstOpts).then(function (firstResult) {
+          var defaultAudio = firstResult.selectedAudioIndex;
+          var defaultSubtitle = null;
+          var subtitles = firstResult.subtitles || [];
+          for (var i = 0; i < subtitles.length; i++) {
+              if (subtitles[i].selected) {
+                  defaultSubtitle = subtitles[i].index;
+                  break;
+              }
+          }
+          if (defaultSubtitle === null && subtitles.length) {
+              defaultSubtitle = subtitles[0].index;
+          }
+  
+          var finalOpts = Object.assign({}, opts);
+          if (audioIndex === undefined || audioIndex === null) {
+              if (defaultAudio !== null && defaultAudio !== undefined) {
+                  finalOpts.audioStreamIndex = defaultAudio;
+                  remoteLog('streamUrl: используем дефолтный audioIndex', defaultAudio);
+              }
+          }
+          if (subtitleIndex === undefined || subtitleIndex === null) {
+              if (defaultSubtitle !== null && defaultSubtitle !== undefined) {
+                  finalOpts.subtitleStreamIndex = defaultSubtitle;
+                  remoteLog('streamUrl: используем дефолтный subtitleIndex', defaultSubtitle);
+              }
+          }
+  
+          remoteLog('streamUrl: второй запрос с индексами', { audio: finalOpts.audioStreamIndex, subtitle: finalOpts.subtitleStreamIndex });
+          return streamUrlInternal(itemId, finalOpts);
+      });
   }
 
   // Функция playItemFromRow (создаёт объект качества с call-функциями, без playlist и movie)
   function playItemFromRow(row, userId, includeMovie, opts) {
-    opts = opts || {};
-	remoteLog('playItemFromRow: ВХОД', { rowId: row.id, userId: userId, includeMovie: includeMovie, opts: opts });
-    var variant;
-    if (opts.qualityTarget && !usesLampaNativePlayer()) {
-      variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
-    } else {
-      variant = resolvePlayVariant(row);
-    }
-    var playTarget = rowWithVariant(row, variant);
-    var streamOpts = {
-      userId: userId,
-      startTicks: rowStartTicks(playTarget),
-      mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
-      qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
-      audioStreamIndex: opts.audioStreamIndex
-    };
-
-    remoteLog('playItemFromRow: streamOpts', streamOpts);
-
-    return streamUrl(playTarget.id, streamOpts).then(function (result) {
-      remoteLog('playItemFromRow: streamUrl результат', { url: result.url, subtitlesCount: result.subtitles ? result.subtitles.length : 0, audioStreamsCount: result.audioStreams ? result.audioStreams.length : 0 });
-	  var item = {
-        title: row.title,
-        url: result.url,
+      opts = opts || {};
+      remoteLog('playItemFromRow: ВХОД', { rowId: row.id, userId: userId, includeMovie: includeMovie, opts: opts });
+      var variant;
+      if (opts.qualityTarget && !usesLampaNativePlayer()) {
+          variant = findVariantForQuality(row, opts.qualityTarget) || resolvePlayVariant(row);
+      } else {
+          variant = resolvePlayVariant(row);
+      }
+      var playTarget = rowWithVariant(row, variant);
+      var streamOpts = {
+          userId: userId,
+          startTicks: rowStartTicks(playTarget),
+          mediaSourceId: playTarget.mediaSourceId || variant.mediaSourceId,
+          qualityPreset: opts.qualityTarget ? lampaQualityKey(opts.qualityTarget) : defaultTranscodePresetKey(),
+          audioStreamIndex: opts.audioStreamIndex
       };
-      if (playTarget.resumeSec > 0) {
-        item.timeline = includeMovie
-          ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
-          : { time: playTarget.resumeSec };
-      }
-      if (result.subtitles && result.subtitles.length) {
-        item.subtitles = result.subtitles;
-      }
-
-	  // ---- СОЗДАЁМ СПИСОК АУДИОДОРОЖЕК ДЛЯ ПАНЕЛИ ----
-	  var audioStreams = result.audioStreams || [];
-	  var selectedIndex = result.selectedAudioIndex;
-	  
-	  remoteLog('playItemFromRow: audioStreams', audioStreams, 'selectedIndex', selectedIndex);
-	  
-	  // Функция для создания одного элемента voiceover в формате, понятном панели плеера
-	  function makeVoiceover(stream, selectedIdx, switchFn) {
-	 	 return {
-	 		 index: stream.index,
-	 		 language: stream.language || '',
-	 		 label: stream.displayTitle || '',
-	 		 extra: {
-	 			 channels: stream.channels || 0
-	 		 },
-	 		 selected: stream.index === selectedIdx,
-	 		 onSelect: function() {
-	 			 remoteLog('onSelect: выбрана дорожка с индексом', stream.index);
-	 			 var chosenIndex = stream.index;
-	 			 switchFn(chosenIndex).then(function (newUrl) {
-	 				 remoteLog('onSelect: успешно получен новый URL', newUrl);
-	 				 // Создаём обновлённый список voiceovers с новым выбранным индексом
-	 				 var updatedVoiceovers = audioStreams.map(function (s) {
-	 					 return makeVoiceover(s, chosenIndex, switchFn);
-	 				 });
-	 				 var work = Lampa.Player.playdata();
-	 				 if (work) {
-	 					 var newData = Object.assign({}, work, {
-	 						 url: newUrl,
-	 						 voiceovers: updatedVoiceovers,
-	 						 timeline: {
-	 							 time: work.timeline ? work.timeline.time : 0,
-	 							 percent: work.timeline ? work.timeline.percent : 0,
-	 							 duration: work.timeline ? work.timeline.duration : 0
-	 						 }
-	 					 });
-	 					 remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
-	 					 Lampa.Player.play(newData);
-	 				 } else {
-	 					 remoteLog('onSelect: Lampa.Player.playdata() вернул null');
-	 				 }
-	 			 }).catch(function (err) {
-	 				 remoteLog('onSelect: ошибка при переключении', err, err.stack);
-	 				 Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-	 			 });
-	 		 }
-	 	 };
-	  }
-	  
-	  // Функция для переключения аудио
-	  var switchAudio = function (audioIndex) {
-	 	 remoteLog('switchAudio: переключение на индекс', audioIndex);
-	 	 var switchOpts = {
-	 		 userId: userId,
-	 		 startTicks: streamOpts.startTicks,
-	 		 mediaSourceId: streamOpts.mediaSourceId,
-	 		 qualityPreset: streamOpts.qualityPreset,
-	 		 audioStreamIndex: audioIndex
-	 	 };
-	 	 remoteLog('switchAudio: switchOpts', switchOpts);
-	 	 return streamUrl(playTarget.id, switchOpts).then(function (res) {
-	 		 remoteLog('switchAudio: получен новый URL', res.url);
-	 		 return res.url;
-	 	 }).catch(function (err) {
-	 		 remoteLog('switchAudio: ОШИБКА при получении URL', err, err.stack);
-	 		 throw err;
-	 	 });
-	  };
-	  
-	  // Создаём voiceovers
-	  var voiceovers = audioStreams.map(function (stream) {
-	 	 return makeVoiceover(stream, selectedIndex, switchAudio);
-	  });
-	  
-	  item.voiceovers = voiceovers;
-	  remoteLog('playItemFromRow: voiceovers созданы', voiceovers);
-	  // ------------------------------------------------
-
-      // ---- СОЗДАЁМ ОБЪЕКТ КАЧЕСТВА С CALL-ФУНКЦИЯМИ (без предзапроса URL) ----
-      if (transcodingEnabled()) {
-        var qualityObj = {};
-        PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
-          var presetKey = entry.preset;
-          var qualityLabel = entry.key;
-          qualityObj[qualityLabel] = {
-            label: qualityLabel,
-            call: function(callback) {
-              var qualityOpts = {
-                userId: userId,
-                startTicks: streamOpts.startTicks,
-                mediaSourceId: streamOpts.mediaSourceId,
-                qualityPreset: presetKey,
-                audioStreamIndex: streamOpts.audioStreamIndex
-              };
-              streamUrl(playTarget.id, qualityOpts).then(function (res) {
-                remoteLog('quality call: получен URL для', qualityLabel, res.url);
-                // Сначала передаём URL через callback (для интерфейса выбора)
-                if (typeof callback === 'function') {
-                  callback(res.url);
-                }
-                // Затем перезапускаем плеер с новым URL
-                var work = Lampa.Player.playdata();
-                if (work) {
-                  var newData = Object.assign({}, work, {
-                    url: res.url,
-                    timeline: {
-                      time: work.timeline ? work.timeline.time : 0,
-                      percent: work.timeline ? work.timeline.percent : 0,
-                      duration: work.timeline ? work.timeline.duration : 0
-                    }
-                  });
-                  remoteLog('quality call: перезапускаем плеер с новым URL', newData);
-                  Lampa.Player.play(newData);
-                }
-              }).catch(function (err) {
-                remoteLog('quality call: ошибка при запросе URL для', qualityLabel, err, err.stack);
-                Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
-              });
-            }
+  
+      remoteLog('playItemFromRow: streamOpts', streamOpts);
+  
+      return streamUrl(playTarget.id, streamOpts).then(function (result) {
+          remoteLog('playItemFromRow: streamUrl результат', { url: result.url, subtitlesCount: result.subtitles ? result.subtitles.length : 0, audioStreamsCount: result.audioStreams ? result.audioStreams.length : 0 });
+          var item = {
+              title: row.title,
+              url: result.url,
           };
-        });
-        item.quality = qualityObj;
-        remoteLog('playItemFromRow: quality создан', item.quality);
-      }
-      // ------------------------------------------------
-
-          remoteLog('playItemFromRow: финальный item', { title: item.title, url: item.url, voiceoversCount: (item.voiceovers || []).length, hasQuality: !!item.quality });
+          if (playTarget.resumeSec > 0) {
+              item.timeline = includeMovie
+                  ? { time: playTarget.resumeSec, duration: 0, percent: 0 }
+                  : { time: playTarget.resumeSec };
+          }
+          if (result.subtitles && result.subtitles.length) {
+              item.subtitles = result.subtitles; // для Video.customSubs
+          }
+  
+          // ---- СОЗДАЁМ СПИСОК АУДИОДОРОЖЕК ДЛЯ ПАНЕЛИ ----
+          var audioStreams = result.audioStreams || [];
+          var selectedIndex = result.selectedAudioIndex;
+  
+          remoteLog('playItemFromRow: audioStreams', audioStreams, 'selectedIndex', selectedIndex);
+  
+          // Функция для создания одного элемента voiceover
+          function makeVoiceover(stream, selectedIdx, switchFn) {
+              return {
+                  index: stream.index,
+                  language: stream.language || '',
+                  label: stream.displayTitle || '',
+                  extra: {
+                      channels: stream.channels || 0
+                  },
+                  selected: stream.index === selectedIdx,
+                  onSelect: function() {
+                      remoteLog('onSelect: выбрана дорожка с индексом', stream.index);
+                      var chosenIndex = stream.index;
+                      switchFn(chosenIndex).then(function (newUrl) {
+                          remoteLog('onSelect: успешно получен новый URL', newUrl);
+                          var updatedVoiceovers = audioStreams.map(function (s) {
+                              return makeVoiceover(s, chosenIndex, switchFn);
+                          });
+                          var work = Lampa.Player.playdata();
+                          if (work) {
+                              var newData = Object.assign({}, work, {
+                                  url: newUrl,
+                                  voiceovers: updatedVoiceovers,
+                                  timeline: {
+                                      time: work.timeline ? work.timeline.time : 0,
+                                      percent: work.timeline ? work.timeline.percent : 0,
+                                      duration: work.timeline ? work.timeline.duration : 0
+                                  }
+                              });
+                              remoteLog('onSelect: перезапускаем плеер с обновлёнными voiceovers', newData);
+                              Lampa.Player.play(newData);
+                          } else {
+                              remoteLog('onSelect: Lampa.Player.playdata() вернул null');
+                          }
+                      }).catch(function (err) {
+                          remoteLog('onSelect: ошибка при переключении', err, err.stack);
+                          Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+                      });
+                  }
+              };
+          }
+  
+          // Функция для переключения аудио
+          var switchAudio = function (audioIndex) {
+              remoteLog('switchAudio: переключение на индекс', audioIndex);
+              var switchOpts = {
+                  userId: userId,
+                  startTicks: streamOpts.startTicks,
+                  mediaSourceId: streamOpts.mediaSourceId,
+                  qualityPreset: streamOpts.qualityPreset,
+                  audioStreamIndex: audioIndex,
+                  subtitleStreamIndex: currentSubtitleIndex // сохраняем текущий субтитр
+              };
+              remoteLog('switchAudio: switchOpts', switchOpts);
+              return streamUrl(playTarget.id, switchOpts).then(function (res) {
+                  remoteLog('switchAudio: получен новый URL', res.url);
+                  return res.url;
+              }).catch(function (err) {
+                  remoteLog('switchAudio: ОШИБКА при получении URL', err, err.stack);
+                  throw err;
+              });
+          };
+  
+          var voiceovers = audioStreams.map(function (stream) {
+              return makeVoiceover(stream, selectedIndex, switchAudio);
+          });
+  
+          item.voiceovers = voiceovers;
+          remoteLog('playItemFromRow: voiceovers созданы', voiceovers);
+  
+          // ---- СОЗДАЁМ СПИСОК СУБТИТРОВ ДЛЯ ПАНЕЛИ С ПОДДЕРЖКОЙ ПЕРЕКЛЮЧЕНИЯ ----
+          var subtitles = result.subtitles || [];
+          var currentSubtitleIndex = null;
+          subtitles.forEach(function (sub) {
+              if (sub.selected) currentSubtitleIndex = sub.index;
+          });
+          if (currentSubtitleIndex === null && subtitles.length) {
+              currentSubtitleIndex = subtitles[0].index;
+          }
+  
+          // Функция переключения субтитров
+          function switchSubtitle(subIndex) {
+              remoteLog('switchSubtitle: переключение на субтитр', subIndex);
+              var newOpts = {
+                  userId: userId,
+                  startTicks: streamOpts.startTicks,
+                  mediaSourceId: streamOpts.mediaSourceId,
+                  qualityPreset: streamOpts.qualityPreset,
+                  audioStreamIndex: streamOpts.audioStreamIndex,
+                  subtitleStreamIndex: subIndex
+              };
+              return streamUrl(playTarget.id, newOpts).then(function (res) {
+                  remoteLog('switchSubtitle: получен новый URL', res.url);
+                  var work = Lampa.Player.playdata();
+                  if (work) {
+                      // Обновляем список субтитров для панели
+                      var updatedSubsForPanel = res.subtitles.map(function (s) {
+                          return {
+                              index: s.index,
+                              language: s.language || '',
+                              label: s.label || '',
+                              selected: s.selected || false,
+                              onSelect: function() {
+                                  switchSubtitle(s.index);
+                              }
+                          };
+                      });
+                      currentSubtitleIndex = subIndex;
+                      // Перезапускаем плеер
+                      var newData = Object.assign({}, work, {
+                          url: res.url,
+                          subtitles: res.subtitles,
+                          timeline: {
+                              time: work.timeline ? work.timeline.time : 0,
+                              percent: work.timeline ? work.timeline.percent : 0,
+                              duration: work.timeline ? work.timeline.duration : 0
+                          }
+                      });
+                      remoteLog('switchSubtitle: перезапускаем плеер с новыми субтитрами', newData);
+                      Lampa.Player.play(newData);
+                      // Обновляем панель
+                      if (Lampa.PlayerPanel && typeof Lampa.PlayerPanel.setSubs === 'function') {
+                          Lampa.PlayerPanel.setSubs(updatedSubsForPanel);
+                      }
+                  }
+              }).catch(function (err) {
+                  remoteLog('switchSubtitle: ошибка при переключении', err, err.stack);
+                  Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+              });
+          }
+  
+          var subsForPanel = subtitles.map(function (sub) {
+              return {
+                  index: sub.index,
+                  language: sub.language || '',
+                  label: sub.label || '',
+                  selected: sub.selected || false,
+                  onSelect: function() {
+                      switchSubtitle(sub.index);
+                  }
+              };
+          });
+  
+          item.subtitlesPanel = subsForPanel;
+          remoteLog('playItemFromRow: subsForPanel созданы', subsForPanel);
+  
+          // ---- ОБЪЕКТ КАЧЕСТВА ----
+          if (transcodingEnabled()) {
+              var qualityObj = {};
+              PLAYER_TRANSCODE_QUALITIES.forEach(function (entry) {
+                  var presetKey = entry.preset;
+                  var qualityLabel = entry.key;
+                  qualityObj[qualityLabel] = {
+                      label: qualityLabel,
+                      call: function(callback) {
+                          var qualityOpts = {
+                              userId: userId,
+                              startTicks: streamOpts.startTicks,
+                              mediaSourceId: streamOpts.mediaSourceId,
+                              qualityPreset: presetKey,
+                              audioStreamIndex: streamOpts.audioStreamIndex,
+                              subtitleStreamIndex: currentSubtitleIndex
+                          };
+                          streamUrl(playTarget.id, qualityOpts).then(function (res) {
+                              remoteLog('quality call: получен URL для', qualityLabel, res.url);
+                              if (typeof callback === 'function') callback(res.url);
+                              var work = Lampa.Player.playdata();
+                              if (work) {
+                                  var newData = Object.assign({}, work, {
+                                      url: res.url,
+                                      timeline: {
+                                          time: work.timeline ? work.timeline.time : 0,
+                                          percent: work.timeline ? work.timeline.percent : 0,
+                                          duration: work.timeline ? work.timeline.duration : 0
+                                      }
+                                  });
+                                  remoteLog('quality call: перезапускаем плеер с новым URL', newData);
+                                  Lampa.Player.play(newData);
+                              }
+                          }).catch(function (err) {
+                              remoteLog('quality call: ошибка при запросе URL для', qualityLabel, err, err.stack);
+                              Lampa.Bell.push({ text: Lampa.Lang.translate('jellyfin_error') });
+                          });
+                      }
+                  };
+              });
+              item.quality = qualityObj;
+              remoteLog('playItemFromRow: quality создан', item.quality);
+          }
+  
+          remoteLog('playItemFromRow: финальный item', { title: item.title, url: item.url, voiceoversCount: (item.voiceovers || []).length, subtitlesPanelCount: (item.subtitlesPanel || []).length, hasQuality: !!item.quality });
           return item;
-        }).catch(function (err) {
+      }).catch(function (err) {
           remoteLog('playItemFromRow: ОШИБКА', err, err.stack);
           throw err;
-        });
+      });
   }
 
   // Функция playRow (без playlist)
@@ -1170,13 +1267,13 @@
               return resolveUserId().then(function (userId) {
                   return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
                       Lampa.Player.play(playItem);
-                      // Явно передаём субтитры в панель плеера
-                      if (playItem.subtitles && playItem.subtitles.length) {
-                          if (Lampa.Player.panel && typeof Lampa.Player.panel.setSubs === 'function') {
-                              Lampa.Player.panel.setSubs(playItem.subtitles);
-                              remoteLog('playRow: субтитры переданы в панель', playItem.subtitles);
+                      // Передаём субтитры в панель
+                      if (playItem.subtitlesPanel && playItem.subtitlesPanel.length) {
+                          if (Lampa.PlayerPanel && typeof Lampa.PlayerPanel.setSubs === 'function') {
+                              Lampa.PlayerPanel.setSubs(playItem.subtitlesPanel);
+                              remoteLog('playRow: субтитры переданы в панель', playItem.subtitlesPanel);
                           } else {
-                              remoteLog('playRow: Lampa.Player.panel.setSubs недоступен');
+                              remoteLog('playRow: Lampa.PlayerPanel.setSubs недоступен');
                           }
                       }
                   });
