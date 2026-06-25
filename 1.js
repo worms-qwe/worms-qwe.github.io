@@ -932,13 +932,15 @@
                   var sub = {
                       url: apiBase() + stream.DeliveryUrl,
                       label: stream.DisplayTitle || stream.Language || 'Subtitle',
-                      //index: stream.Index
+                      index: stream.Index
                   };
                   if (stream.IsDefault) {
                       defaultSubtitleIndex = stream.Index;
                       sub.selected = true;
+					  sub.mode = sub.selected ? 'showing' : 'disabled';
                   } else {
 					  sub.selected = false;
+					  sub.mode = sub.selected ? 'showing' : 'disabled';
 				  }
                   subtitles.push(sub);
               }
@@ -1222,6 +1224,7 @@
         return resolveUserId().then(function (userId) {
           return playItemFromRow(ready, userId, true, streamOpts).then(function (playItem) {
             Lampa.Player.play(playItem);
+			Lampa.PlayerPanel.setSubs(playItem.subtitles);
           });
         });
       })
