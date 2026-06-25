@@ -936,12 +936,8 @@
                   };
                   if (stream.IsDefault) {
                       defaultSubtitleIndex = stream.Index;
-                      sub.selected = true;
-					  sub.mode = sub.selected ? 'showing' : 'disabled';
-                  } else {
-					  sub.selected = false;
-					  sub.mode = sub.selected ? 'showing' : 'disabled';
-				  }
+                      sub.selected = stream.Index;
+                  }
                   subtitles.push(sub);
               }
           });
