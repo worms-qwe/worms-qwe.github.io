@@ -932,12 +932,14 @@
                   var sub = {
                       url: apiBase() + stream.DeliveryUrl,
                       label: stream.DisplayTitle || stream.Language || 'Subtitle',
-                      index: stream.Index
+                      //index: stream.Index
                   };
                   if (stream.IsDefault) {
                       defaultSubtitleIndex = stream.Index;
                       sub.selected = true;
-                  }
+                  } else {
+					  sub.selected = false;
+				  }
                   subtitles.push(sub);
               }
           });
