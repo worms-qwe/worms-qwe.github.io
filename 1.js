@@ -828,9 +828,9 @@
               ],
               ContainerProfiles: [],
               CodecProfiles: [
-                  { Type: 'VideoAudio', Codec: 'aac', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+                  { Type: 'VideoAudio', Codec: 'ac3,eac3,aac,mp3', Conditions: [{ Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
+                  { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: true }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
                   { Type: 'Audio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }] },
-                  { Type: 'VideoAudio', Conditions: [{ Condition: 'LessThanEqual', Property: 'AudioChannels', Value: 6, IsRequired: false }, { Condition: 'Equals', Property: 'IsSecondaryAudio', Value: 'false', IsRequired: false }] },
                   { Type: 'Video', Codec: 'h264', Conditions: [
                       { Condition: 'NotEquals', Property: 'IsAnamorphic', Value: 'true', IsRequired: false },
                       { Condition: 'EqualsAny', Property: 'VideoProfile', Value: 'high|main|baseline|constrained baseline', IsRequired: false },
